@@ -4,7 +4,10 @@ import { useAudioStore } from '../stores/audioStore';
 import { useSocket } from '../hooks/useSocket';
 import { getSongUrl, getLyrics, getDurationFromLrc, getTrackKey } from '../api/music';
 import type { QueueItem } from '../types';
-import { configureInlineAudio, onWeChatBridgeReady, tryPlayWithAutoplayFallback } from '../lib/audioUnlock';
+import { getSharedAudio } from '../lib/audioElement';
+import { onWeChatBridgeReady, tryPlayWithAutoplayFallback } from '../lib/audioUnlock';
+
+let audioListenersAttached = false;
 
 function trackKeyOf(song: Pick<QueueItem, 'queueId' | 'id' | 'source'>) {
   return getTrackKey(song);
@@ -64,61 +67,63 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
   }, [skipSong]);
 
   const initAudio = useCallback(() => {
-    if (audioRef.current) return audioRef.current;
-    const audio = new Audio();
-    configureInlineAudio(audio);
-
-    audio.addEventListener('ended', () => {
-      const live = useRoomStore.getState();
-      if (!live.isOwner || !live.room?.current) return;
-      if (readyTrackKey.current !== trackKeyOf(live.room.current)) return;
-      if (!isNearTrackEnd(audio)) return;
-      requestSkip();
-    });
-
-    audio.addEventListener('error', () => {
-      const live = useRoomStore.getState();
-      if (!live.isOwner || !live.room?.current || skippingRef.current) return;
-      if (readyTrackKey.current !== trackKeyOf(live.room.current)) return;
-
-      if (errorRetries.current < 2) {
-        errorRetries.current += 1;
-        audio.load();
-        audio.play().catch(() => {});
-        return;
-      }
-      requestSkip();
-    });
-
-    audio.addEventListener('playing', () => {
-      errorRetries.current = 0;
-    });
-
-    audio.addEventListener('loadedmetadata', () => {
-      const live = useRoomStore.getState().room?.current;
-      if (!live || lastTrackKey.current !== trackKeyOf(live)) return;
-      syncMediaDuration(audio, lastTrackKey.current);
-    });
-
-    audio.addEventListener('durationchange', () => {
-      const live = useRoomStore.getState().room?.current;
-      if (!live || lastTrackKey.current !== trackKeyOf(live)) return;
-      syncMediaDuration(audio, lastTrackKey.current);
-    });
-
-    audio.addEventListener('timeupdate', () => {
-      if (syncing.current || !audioRef.current) return;
-      const { isOwner, room: liveRoom } = useRoomStore.getState();
-      if (!isOwner || !liveRoom?.isPlaying) return;
-      if (readyTrackKey.current !== trackKeyOf(liveRoom.current!)) return;
-
-      const now = Date.now();
-      if (now - lastSyncAt.current < 2000) return;
-      lastSyncAt.current = now;
-      syncTime(audioRef.current.currentTime);
-    });
-
+    const audio = getSharedAudio();
     audioRef.current = audio;
+
+    if (!audioListenersAttached) {
+      audioListenersAttached = true;
+
+      audio.addEventListener('ended', () => {
+        const live = useRoomStore.getState();
+        if (!live.isOwner || !live.room?.current) return;
+        if (readyTrackKey.current !== trackKeyOf(live.room.current)) return;
+        if (!isNearTrackEnd(audio)) return;
+        requestSkip();
+      });
+
+      audio.addEventListener('error', () => {
+        const live = useRoomStore.getState();
+        if (!live.isOwner || !live.room?.current || skippingRef.current) return;
+        if (readyTrackKey.current !== trackKeyOf(live.room.current)) return;
+
+        if (errorRetries.current < 2) {
+          errorRetries.current += 1;
+          audio.load();
+          audio.play().catch(() => {});
+          return;
+        }
+        requestSkip();
+      });
+
+      audio.addEventListener('playing', () => {
+        errorRetries.current = 0;
+      });
+
+      audio.addEventListener('loadedmetadata', () => {
+        const live = useRoomStore.getState().room?.current;
+        if (!live || lastTrackKey.current !== trackKeyOf(live)) return;
+        syncMediaDuration(audio, lastTrackKey.current);
+      });
+
+      audio.addEventListener('durationchange', () => {
+        const live = useRoomStore.getState().room?.current;
+        if (!live || lastTrackKey.current !== trackKeyOf(live)) return;
+        syncMediaDuration(audio, lastTrackKey.current);
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        if (syncing.current || !audioRef.current) return;
+        const { isOwner, room: liveRoom } = useRoomStore.getState();
+        if (!isOwner || !liveRoom?.isPlaying) return;
+        if (readyTrackKey.current !== trackKeyOf(liveRoom.current!)) return;
+
+        const now = Date.now();
+        if (now - lastSyncAt.current < 2000) return;
+        lastSyncAt.current = now;
+        syncTime(audioRef.current.currentTime);
+      });
+    }
+
     return audio;
   }, [requestSkip, syncTime]);
 
@@ -364,6 +369,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     audio.currentTime = isFinite(dur) && dur > 0 ? Math.min(target, dur - 0.25) : target;
     setTimeout(() => { syncing.current = false; }, 300);
   }, [room?.currentTime, room?.current?.queueId, room?.current?.id, room?.current?.source]);
+
+  useEffect(() => {
+    return () => {
+      loadGeneration.current += 1;
+      lastTrackKey.current = null;
+      readyTrackKey.current = null;
+    };
+  }, []);
 
   const handleSkip = useCallback(() => {
     readyTrackKey.current = null;

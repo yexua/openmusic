@@ -9,7 +9,7 @@ interface Props {
 
 const SIZE_CLASS = {
   default: 'w-52 h-52 sm:w-60 sm:h-60 lg:w-72 lg:h-72 xl:w-80 xl:h-80 2xl:w-96 2xl:h-96',
-  large: 'w-60 h-60 sm:w-72 sm:h-72 lg:w-80 lg:h-80 xl:w-[400px] xl:h-[400px] 2xl:w-[500px] 2xl:h-[500px] 3xl:w-[600px] 3xl:h-[600px]',
+  large: 'w-44 h-44 sm:w-52 sm:h-52 md:w-60 md:h-60 lg:w-72 lg:h-72 xl:w-80 xl:h-80 2xl:w-96 2xl:h-96',
 };
 
 /** SVG viewBox 140×100，铰链圆心 — 改圆心坐标时同步改这里 */
@@ -21,7 +21,7 @@ export default function VinylPlayer({ coverUrl, isPlaying, className = '', size 
   const gradId = useId().replace(/:/g, '');
 
   return (
-    <div className={`relative pt-[14%] ${className}`}>
+    <div className={`relative pt-[10%] sm:pt-[12%] lg:pt-[14%] ${className}`}>
       {/* 唱针臂 — 位于唱片上方，播放时落下，暂停时摆到外侧 */}
       <div
         className="absolute z-30 top-0 right-[-5%] w-[70%] transition-transform duration-1000 ease-in-out pointer-events-none"

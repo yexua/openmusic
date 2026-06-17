@@ -9,8 +9,9 @@ interface RoomStore {
   showPlayer: boolean;
   setRoom: (room: RoomState | null) => void;
   setNickname: (name: string) => void;
-  setConnectionInfo: (socketId: string, isOwner: boolean) => void;
+  setConnectionInfo: (socketId: string | null, isOwner: boolean) => void;
   setShowPlayer: (show: boolean) => void;
+  resetSession: () => void;
 }
 
 export const useRoomStore = create<RoomStore>((set) => ({
@@ -26,4 +27,5 @@ export const useRoomStore = create<RoomStore>((set) => ({
   },
   setConnectionInfo: (mySocketId, isOwner) => set({ mySocketId, isOwner }),
   setShowPlayer: (showPlayer) => set({ showPlayer }),
+  resetSession: () => set({ room: null, mySocketId: null, isOwner: false, showPlayer: false }),
 }));

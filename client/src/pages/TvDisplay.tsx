@@ -20,7 +20,7 @@ export default function TvDisplay() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const room = useRoomStore((s) => s.room);
-  const { joinRoom } = useSocket();
+  const { joinRoom, leaveRoom } = useSocket();
   const setLrcDuration = useAudioStore((s) => s.setLrcDuration);
 
   const [joinError, setJoinError] = useState('');
@@ -67,7 +67,10 @@ export default function TvDisplay() {
         setTimeout(() => navigate('/'), 3000);
       }
     });
-  }, [roomId, joinRoom, navigate]);
+    return () => {
+      leaveRoom();
+    };
+  }, [roomId, joinRoom, leaveRoom, navigate]);
 
   useEffect(() => {
     if (!current) {

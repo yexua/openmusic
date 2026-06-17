@@ -239,6 +239,15 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const prevRoomId = socketToRoom.get(socket.id);
+    if (prevRoomId && prevRoomId !== id) {
+      socket.leave(prevRoomId);
+      const prevResult = removeUser(prevRoomId, socket.id);
+      if (prevResult && !prevResult.empty) {
+        io.to(prevRoomId).emit('room_update', prevResult);
+      }
+    }
+
     addUser(id, socket.id, nickname);
     const room = await ensurePlayback(id);
     socket.join(id);
@@ -251,6 +260,22 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       isOwner: room.ownerId === socket.id,
     });
+  });
+
+  socket.on('leave_room', (_payload, callback) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: true });
+      return;
+    }
+
+    socket.leave(roomId);
+    socketToRoom.delete(socket.id);
+    const result = removeUser(roomId, socket.id);
+    if (result && !result.empty) {
+      io.to(roomId).emit('room_update', result);
+    }
+    callback?.({ success: true });
   });
 
   socket.on('add_song', async ({ song }, callback) => {

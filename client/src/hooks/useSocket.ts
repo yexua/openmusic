@@ -3,8 +3,11 @@ import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 import { useRoomStore } from '../stores/roomStore';
+import { useAudioStore } from '../stores/audioStore';
 
 import type { ChatMessage, RoomState, Song } from '../types';
+
+import { stopSharedAudio } from '../lib/audioElement';
 
 
 
@@ -37,6 +40,8 @@ export function useSocket() {
   const setRoom = useRoomStore((s) => s.setRoom);
 
   const setConnectionInfo = useRoomStore((s) => s.setConnectionInfo);
+
+  const resetSession = useRoomStore((s) => s.resetSession);
 
   const connected = useRef(false);
 
@@ -183,6 +188,24 @@ export function useSocket() {
     [connect, setRoom, setConnectionInfo],
 
   );
+
+
+
+  const leaveRoom = useCallback((): Promise<void> => {
+    stopSharedAudio();
+    useAudioStore.getState().setTrackLoading(false);
+    useAudioStore.getState().setNeedsAudioUnlock(false);
+    resetSession();
+
+    return new Promise((resolve) => {
+      const s = getSocket();
+      if (!s.connected) {
+        resolve();
+        return;
+      }
+      s.emit('leave_room', {}, () => resolve());
+    });
+  }, [resetSession]);
 
 
 
@@ -389,6 +412,8 @@ export function useSocket() {
   return {
 
     joinRoom,
+
+    leaveRoom,
 
     addSong,
 

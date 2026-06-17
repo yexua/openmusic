@@ -75,7 +75,7 @@ export default function Lyrics({ lines, currentTime, onSeek, variant = 'center',
         ? { maskImage: 'linear-gradient(transparent, black 8%, black 92%, transparent)' }
         : { maskImage: 'linear-gradient(transparent, black 12%, black 88%, transparent)' }}
     >
-      <div className={isSide ? (isLarge ? 'space-y-4 py-2 2xl:space-y-8 2xl:py-4' : 'space-y-3 py-2') : 'space-y-5 py-[40vh] 2xl:space-y-8'}>
+      <div className={isSide ? (isLarge ? 'space-y-2 sm:space-y-3 py-1 sm:py-2 2xl:space-y-8 2xl:py-4' : 'space-y-3 py-2') : 'space-y-5 py-[40vh] 2xl:space-y-8'}>
         {visibleLines.map((line, i) => {
           const realIndex = isSide ? windowStart + i : i;
           const isActive = realIndex === activeIndex;

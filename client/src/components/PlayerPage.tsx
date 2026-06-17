@@ -166,17 +166,17 @@ export default function PlayerPage({ onClose }: Props) {
 
 
 
-      <header className="relative z-10 flex items-center px-4 py-3 2xl:px-8 2xl:py-6 flex-shrink-0">
+      <header className="relative z-10 flex items-center px-3 py-2 sm:px-4 sm:py-3 2xl:px-8 2xl:py-6 flex-shrink-0">
 
         <button
 
           onClick={onClose}
 
-          className="w-10 h-10 2xl:w-16 2xl:h-16 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+          className="w-9 h-9 sm:w-10 sm:h-10 2xl:w-16 2xl:h-16 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
 
         >
 
-          <ChevronDown className="w-6 h-6 2xl:w-10 2xl:h-10" />
+          <ChevronDown className="w-5 h-5 sm:w-6 sm:h-6 2xl:w-10 2xl:h-10" />
 
         </button>
 
@@ -188,11 +188,11 @@ export default function PlayerPage({ onClose }: Props) {
 
 
 
-      <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 px-4 lg:px-12 2xl:px-24 gap-4 lg:gap-8 2xl:gap-16">
+      <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 px-3 sm:px-4 lg:px-12 2xl:px-24 gap-1 sm:gap-4 lg:gap-8 2xl:gap-16">
 
-        <div className="flex-shrink-0 lg:flex-1 flex items-center justify-center py-2 lg:py-8 2xl:py-16">
+        <div className="flex-shrink-0 lg:flex-1 flex items-center justify-center py-0 sm:py-2 lg:py-8 2xl:py-16">
 
-          <VinylPlayer coverUrl={coverUrl} isPlaying={isPlaying} size="large" />
+          <VinylPlayer coverUrl={coverUrl} isPlaying={isPlaying} size="large" className="scale-[0.92] sm:scale-100 origin-center" />
 
         </div>
 
@@ -228,9 +228,9 @@ export default function PlayerPage({ onClose }: Props) {
 
 
 
-      <footer className="relative z-10 px-6 pb-6 pt-3 flex-shrink-0 2xl:px-12 2xl:pb-12 2xl:pt-6">
+      <footer className="relative z-10 px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-3 flex-shrink-0 2xl:px-12 2xl:pb-12 2xl:pt-6">
 
-        <div className="mb-2 flex justify-between text-sm 2xl:text-xl text-white/50">
+        <div className="mb-1.5 sm:mb-2 flex justify-between text-xs sm:text-sm 2xl:text-xl text-white/50">
 
           <span>{formatDuration(currentTime)}</span>
 
@@ -240,7 +240,7 @@ export default function PlayerPage({ onClose }: Props) {
 
 
 
-        <div className="mb-4 py-2 -my-2 2xl:mb-8">
+        <div className="mb-2 sm:mb-4 py-1 sm:py-2 -my-1 sm:-my-2 2xl:mb-8">
 
           <ProgressBar
 
@@ -266,50 +266,50 @@ export default function PlayerPage({ onClose }: Props) {
 
         </div>
 
-        <div className="flex items-center justify-center gap-10 2xl:gap-16">
+        <div className="flex items-center justify-center gap-8 sm:gap-10 2xl:gap-16">
 
-          <div className="w-12 2xl:w-20" />
+          <div className="w-10 sm:w-12 2xl:w-20" />
 
           {isOwner ? (
             <button
               onClick={handlePlayPause}
               disabled={trackLoading}
-              className="w-16 h-16 2xl:w-24 2xl:h-24 flex items-center justify-center rounded-full bg-white text-black hover:scale-105 transition-transform shadow-lg shadow-black/30 disabled:opacity-60"
+              className="w-14 h-14 sm:w-16 sm:h-16 2xl:w-24 2xl:h-24 flex items-center justify-center rounded-full bg-white text-black hover:scale-105 transition-transform shadow-lg shadow-black/30 disabled:opacity-60"
               title="暂停/播放"
             >
               {trackLoading ? (
-                <Loader2 className="w-7 h-7 2xl:w-10 2xl:h-10 animate-spin" />
+                <Loader2 className="w-6 h-6 sm:w-7 sm:h-7 2xl:w-10 2xl:h-10 animate-spin" />
               ) : isPlaying ? (
-                <Pause className="w-7 h-7 2xl:w-10 2xl:h-10" />
+                <Pause className="w-6 h-6 sm:w-7 sm:h-7 2xl:w-10 2xl:h-10" />
               ) : (
-                <Play className="w-7 h-7 2xl:w-10 2xl:h-10 ml-0.5 2xl:ml-1" />
+                <Play className="w-6 h-6 sm:w-7 sm:h-7 2xl:w-10 2xl:h-10 ml-0.5 2xl:ml-1" />
               )}
             </button>
           ) : (
-            <div className="w-16 h-16 2xl:w-24 2xl:h-24" />
+            <div className="w-14 h-14 sm:w-16 sm:h-16 2xl:w-24 2xl:h-24" />
           )}
 
           {isOwner ? (
             <button
               onClick={handleSkip}
               disabled={trackLoading}
-              className="w-12 h-12 2xl:w-20 2xl:h-20 flex items-center justify-center text-white/70 hover:text-white transition-colors disabled:opacity-50"
+              className="w-10 h-10 sm:w-12 sm:h-12 2xl:w-20 2xl:h-20 flex items-center justify-center text-white/70 hover:text-white transition-colors disabled:opacity-50"
               title="切歌"
             >
               {trackLoading ? (
-                <Loader2 className="w-6 h-6 2xl:w-8 2xl:h-8 animate-spin" />
+                <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 2xl:w-8 2xl:h-8 animate-spin" />
               ) : (
-                <SkipForward className="w-6 h-6 2xl:w-8 2xl:h-8" />
+                <SkipForward className="w-5 h-5 sm:w-6 sm:h-6 2xl:w-8 2xl:h-8" />
               )}
             </button>
           ) : (
             <button
               onClick={handleRequestSkip}
               disabled={hasPendingSkip}
-              className="w-12 h-12 2xl:w-20 2xl:h-20 flex items-center justify-center text-white/70 hover:text-white transition-colors disabled:opacity-40"
+              className="w-10 h-10 sm:w-12 sm:h-12 2xl:w-20 2xl:h-20 flex items-center justify-center text-white/70 hover:text-white transition-colors disabled:opacity-40"
               title={hasPendingSkip ? '已申请切歌' : '申请切歌'}
             >
-              <SkipForward className="w-6 h-6 2xl:w-8 2xl:h-8" />
+              <SkipForward className="w-5 h-5 sm:w-6 sm:h-6 2xl:w-8 2xl:h-8" />
             </button>
           )}
 

@@ -44,7 +44,7 @@ export default function Room() {
 
   const { nickname, room, showPlayer, setShowPlayer, isOwner } = useRoomStore();
 
-  const { joinRoom, addSong } = useSocket();
+  const { joinRoom, addSong, leaveRoom } = useSocket();
 
 
 
@@ -98,7 +98,11 @@ export default function Room() {
 
     });
 
-  }, [roomId, nickname, joinRoom, navigate]);
+    return () => {
+      leaveRoom();
+    };
+
+  }, [roomId, nickname, joinRoom, leaveRoom, navigate]);
 
 
 
@@ -315,7 +319,10 @@ export default function Room() {
               </button>
 
               <button
-                onClick={() => navigate('/')}
+                onClick={() => {
+                  leaveRoom();
+                  navigate('/');
+                }}
                 className="flex items-center gap-1.5 text-xs text-netease-muted hover:text-white transition-colors px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-netease-card"
                 title="创建房间"
               >

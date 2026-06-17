@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Music, Users, Radio, ArrowRight } from 'lucide-react';
 import { createRoom, checkRoom } from '../api/meting';
 import { useRoomStore } from '../stores/roomStore';
+import { useSocket } from '../hooks/useSocket';
 
 export default function Home() {
   const navigate = useNavigate();
   const { nickname, setNickname } = useRoomStore();
+  const { leaveRoom } = useSocket();
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    leaveRoom();
+  }, [leaveRoom]);
 
   const handleCreate = async () => {
     if (!nickname.trim()) {
