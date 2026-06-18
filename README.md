@@ -127,7 +127,7 @@ CYAPI_KEY=你的迟言apikey
 **要求**：Node.js >= 18
 
 ```bash
-git clone https://github.com/你的用户名/openmusic.git
+git clone https://github.com/wqqqqqq200/openmusic.git
 cd openmusic
 
 npm run install:all
