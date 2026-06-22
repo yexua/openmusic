@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { MessageCircle, Send, Smile } from 'lucide-react';
 import { useRoomStore } from '../stores/roomStore';
+import { getClientId } from '../lib/clientId';
 import { useSocket } from '../hooks/useSocket';
 import {
   getInitialQQFaces,
@@ -244,7 +245,8 @@ export default function ChatPanel() {
           <p className="text-xs text-netease-muted text-center py-8">暂无消息，打个招呼吧</p>
         ) : (
           room.messages.map((msg) => {
-            const isMe = msg.userId === mySocketId;
+            const myUserId = mySocketId || getClientId();
+            const isMe = msg.userId === myUserId;
             const isOwner = msg.userId === room.ownerId;
             return (
               <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
@@ -328,7 +330,8 @@ export default function ChatPanel() {
               suppressContentEditableWarning
               onBeforeInput={(event) => {
                 const nativeEvent = event.nativeEvent as InputEvent;
-                if (nativeEvent.inputType.startsWith('delete') || nativeEvent.isComposing) return;
+                const inputType = nativeEvent.inputType ?? '';
+                if (inputType.startsWith('delete') || nativeEvent.isComposing) return;
 
                 const data = nativeEvent.data || '';
                 if (serializeEditor().length - getSelectedTextLength() + data.length > MAX_CHAT_LENGTH) {

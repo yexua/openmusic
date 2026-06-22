@@ -5,14 +5,17 @@ import { io, Socket } from 'socket.io-client';
 import { useRoomStore } from '../stores/roomStore';
 import { useAudioStore } from '../stores/audioStore';
 
-import type { ChatMessage, RoomState, Song } from '../types';
+import type { ChatMessage, PlaybackState, RoomState, Song } from '../types';
 
-import { stopSharedAudio, getSharedAudio } from '../lib/audioElement';
-import { getTrackKey } from '../api/music';
+import { stopSharedAudio } from '../lib/audioElement';
 import { prefetchCurrentSong } from '../lib/songPreloadCache';
-import { resolveDisplayDurationSeconds, clampPlaybackTime } from '../hooks/useTrackDuration';
-import { snapPlaybackAnchor, resetPlaybackAnchor } from '../lib/playbackSync';
-import { isMobileDevice } from '../lib/audioUnlock';
+import { resetPlaybackStateCache } from '../lib/playbackState';
+import {
+  schedulePlaybackState,
+  seedPlaybackFromRoom,
+  resetPlaybackScheduling,
+} from '../lib/playbackSchedule';
+import { getClientId, rememberClientId } from '../lib/clientId';
 
 
 
@@ -21,11 +24,8 @@ let socketListenersAttached = false;
 let socketConnectRequested = false;
 
 const SOCKET_ACK_TIMEOUT_MS = 8000;
-const CLIENT_ID_KEY = 'openmusic_client_id';
 const CLIENT_TOKEN_KEY = 'openmusic_client_token';
-let currentClientId: string | null = null;
 let currentClientToken: string | null = null;
-let legacyClientIdCleared = false;
 
 type JoinSession = {
   roomId: string;
@@ -37,7 +37,6 @@ type JoinSession = {
 let lastJoinSession: JoinSession | null = null;
 let rejoinInFlight = false;
 let joinGeneration = 0;
-let lastListenerRoomTickAt = 0;
 
 
 
@@ -59,35 +58,6 @@ function getSocket(): Socket {
 
 }
 
-function createClientId() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function isReloadNavigation() {
-  const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-  return navigation?.type === 'reload';
-}
-
-function getClientId() {
-  if (currentClientId) return currentClientId;
-
-  try {
-    if (!legacyClientIdCleared) {
-      legacyClientIdCleared = true;
-      localStorage.removeItem(CLIENT_ID_KEY);
-    }
-
-    const existing = sessionStorage.getItem(CLIENT_ID_KEY);
-    currentClientId = existing && isReloadNavigation() ? existing : createClientId();
-    sessionStorage.setItem(CLIENT_ID_KEY, currentClientId);
-    return currentClientId;
-  } catch {
-    currentClientId = createClientId();
-    return currentClientId;
-  }
-}
-
 function getClientToken() {
   if (currentClientToken) return currentClientToken;
   try {
@@ -100,10 +70,9 @@ function getClientToken() {
 
 function rememberClientIdentity(clientId?: string, clientToken?: string) {
   if (!clientId || !clientToken) return;
-  currentClientId = clientId;
+  rememberClientId(clientId);
   currentClientToken = clientToken;
   try {
-    sessionStorage.setItem(CLIENT_ID_KEY, clientId);
     sessionStorage.setItem(CLIENT_TOKEN_KEY, clientToken);
   } catch {
     // sessionStorage may be unavailable.
@@ -162,7 +131,7 @@ function rejoinLastRoom() {
       if (err || !res?.success || !res.room) return;
 
       useRoomStore.getState().setRoom(res.room);
-      snapPlaybackAnchor(res.room.currentTime, res.room.isPlaying);
+      seedPlaybackFromRoom(res.room);
       rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
       if (res.socketId) {
         useRoomStore.getState().setConnectionInfo(res.socketId, Boolean(res.isOwner), res.connectionId || null);
@@ -198,88 +167,22 @@ export function useSocket() {
 
 
     const onRoomUpdate = (room: RoomState) => {
-      const { mySocketId, myConnectionId, room: prevRoom } = useRoomStore.getState();
+      const { mySocketId, myConnectionId } = useRoomStore.getState();
       const isOwner = Boolean(
         mySocketId
         && room.ownerId === mySocketId
         && (!room.ownerConnectionId || room.ownerConnectionId === myConnectionId),
       );
 
-      let merged = room;
-      if (
-        isOwner
-        && room.isPlaying
-        && room.current
-        && prevRoom?.current?.queueId === room.current.queueId
-        && !useAudioStore.getState().trackLoading
-        && useAudioStore.getState().mediaTrackKey === getTrackKey(room.current)
-      ) {
-        const audio = getSharedAudio();
-        if (
-          audio.src
-          && isFinite(audio.currentTime)
-          && audio.currentTime >= 0
-          && Math.abs(audio.currentTime - room.currentTime) < 0.75
-        ) {
-          merged = { ...room, currentTime: audio.currentTime };
-        }
-      }
-
-      useRoomStore.getState().setRoom(merged);
-      snapPlaybackAnchor(merged.currentTime, merged.isPlaying);
+      useRoomStore.getState().setRoom(room);
 
       if (mySocketId) {
         useRoomStore.getState().setConnectionInfo(mySocketId, isOwner, myConnectionId);
       }
     };
 
-
-
-    const onPlaybackTick = (state: { currentTime: number; isPlaying: boolean }) => {
-      const { room: current, mySocketId, myConnectionId } = useRoomStore.getState();
-      if (!current) return;
-
-      const isOwner = Boolean(
-        mySocketId
-        && current.ownerId === mySocketId
-        && (!current.ownerConnectionId || current.ownerConnectionId === myConnectionId),
-      );
-      let currentTime = state.currentTime;
-
-      if (isOwner && state.isPlaying && current.current) {
-        const { trackLoading, mediaTrackKey } = useAudioStore.getState();
-        const expectedKey = getTrackKey(current.current);
-        if (!trackLoading && mediaTrackKey === expectedKey) {
-          const audio = getSharedAudio();
-          if (audio.src && isFinite(audio.currentTime) && audio.currentTime >= 0) {
-            currentTime = audio.currentTime;
-          }
-        }
-      }
-
-      if (current.current) {
-        const { lrcDurationMs, lrcTrackKey, mediaDurationMs, mediaTrackKey } = useAudioStore.getState();
-        const dur = resolveDisplayDurationSeconds(current.current, {
-          lrcDurationMs,
-          lrcTrackKey,
-          mediaDurationMs,
-          mediaTrackKey,
-        });
-        currentTime = clampPlaybackTime(currentTime, dur);
-      }
-
-      snapPlaybackAnchor(currentTime, state.isPlaying);
-
-      if (!isOwner && isMobileDevice()) {
-        const now = Date.now();
-        const prev = current.currentTime ?? 0;
-        if (now - lastListenerRoomTickAt < 900 && Math.abs(currentTime - prev) < 1.5) {
-          return;
-        }
-        lastListenerRoomTickAt = now;
-      }
-
-      useRoomStore.getState().setRoom({ ...current, currentTime, isPlaying: state.isPlaying });
+    const onPlaybackState = (state: PlaybackState) => {
+      schedulePlaybackState(state);
     };
 
 
@@ -296,13 +199,31 @@ export function useSocket() {
 
     };
 
+    const onKicked = ({ message }: { message?: string }) => {
+      joinGeneration += 1;
+      lastJoinSession = null;
+      stopSharedAudio();
+      resetPlaybackScheduling();
+      resetPlaybackStateCache();
+      useAudioStore.getState().setPlaybackVersion(0);
+      useAudioStore.getState().setTrackLoading(false);
+      useAudioStore.getState().setNeedsAudioUnlock(false);
+      useAudioStore.getState().setSmoothPlaybackTime(0);
+      resetSession();
+      useRoomStore.getState().setExitReason(
+        message || '你已被房主移出房间，无法再次进入',
+      );
+    };
+
 
 
     s.on('room_update', onRoomUpdate);
 
-    s.on('playback_tick', onPlaybackTick);
+    s.on('playback_state', onPlaybackState);
 
     s.on('chat_message', onChatMessage);
+
+    s.on('kicked', onKicked);
 
     s.on('connect', rejoinLastRoom);
     s.on('disconnect', () => {
@@ -312,7 +233,7 @@ export function useSocket() {
       useRoomStore.getState().setConnectionInfo(useRoomStore.getState().mySocketId, false, null);
     });
 
-  }, [setRoom, setConnectionInfo]);
+  }, [setRoom, setConnectionInfo, resetSession]);
 
 
 
@@ -366,7 +287,7 @@ export function useSocket() {
             if (generation !== joinGeneration) return res;
             lastJoinSession = session;
             setRoom(res.room);
-            snapPlaybackAnchor(res.room.currentTime, res.room.isPlaying);
+            seedPlaybackFromRoom(res.room);
             rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
 
             if (res.socketId) {
@@ -392,7 +313,9 @@ export function useSocket() {
     joinGeneration += 1;
     lastJoinSession = null;
     stopSharedAudio();
-    resetPlaybackAnchor(0);
+    resetPlaybackScheduling();
+    resetPlaybackStateCache();
+    useAudioStore.getState().setPlaybackVersion(0);
     useAudioStore.getState().setTrackLoading(false);
     useAudioStore.getState().setNeedsAudioUnlock(false);
     useAudioStore.getState().setSmoothPlaybackTime(0);
@@ -515,13 +438,38 @@ export function useSocket() {
 
   }, [setRoom]);
 
+  const transferOwner = useCallback((userId: string): Promise<{ success: boolean; error?: string; message?: string }> => {
+    return emitWithAck<{ success: boolean; error?: string; message?: string; room?: RoomState }>(
+      'transfer_owner',
+      { userId },
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        setRoom(res.room);
+        const { mySocketId, myConnectionId } = useRoomStore.getState();
+        const nextIsOwner = Boolean(
+          mySocketId
+          && res.room!.ownerId === mySocketId
+          && (!res.room!.ownerConnectionId || res.room!.ownerConnectionId === myConnectionId),
+        );
+        setConnectionInfo(mySocketId, nextIsOwner, myConnectionId);
+      }
+      return res;
+    });
+  }, [setRoom, setConnectionInfo]);
 
-
-  const syncTime = useCallback((time: number) => {
-
-    getSocket().emit('sync_time', { time });
-
-  }, []);
+  const kickUser = useCallback((userId: string): Promise<{ success: boolean; error?: string; message?: string }> => {
+    return emitWithAck<{ success: boolean; error?: string; message?: string; room?: RoomState }>(
+      'kick_user',
+      { userId },
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        setRoom(res.room);
+      }
+      return res;
+    });
+  }, [setRoom]);
 
 
 
@@ -539,8 +487,6 @@ export function useSocket() {
     togglePlay,
 
     seek,
-
-    syncTime,
 
     removeSong,
 
@@ -560,10 +506,13 @@ export function useSocket() {
 
     renameUser,
 
+    kickUser,
+
+    transferOwner,
+
     connect,
 
   };
 
 }
-
 

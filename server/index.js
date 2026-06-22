@@ -15,7 +15,6 @@ import {
   roomExists,
   initRooms,
   isRedisEnabled,
-  persistRoomById,
   addUser,
   removeUser,
   renameUser,
@@ -28,6 +27,7 @@ import {
   setPlaying,
   seekTo,
   getRoomInternal,
+  buildPlaybackState,
   requestJump,
   approveJump,
   rejectJump,
@@ -37,6 +37,8 @@ import {
   addChatMessage,
   advancePlaybackIfEnded,
   canUserMutate,
+  kickUser,
+  transferOwner,
 } from './roomManager.js';
 import {
   isCyapiConfigured,
@@ -44,6 +46,7 @@ import {
   searchKugouMusic,
   getKugouSongDetail,
 } from './cyapi.js';
+import { importNeteasePlaylist, importQqPlaylist } from './playlistImport.js';
 import { recordSongRequest, getHotSongs } from './songHotRank.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -171,7 +174,6 @@ const limitJoinAttempt = createRateLimiter({ windowMs: 60_000, max: 30 });
 const limitProxyRequest = createRateLimiter({ windowMs: 60_000, max: 120 });
 const limitSocketAction = createRateLimiter({ windowMs: 60_000, max: 90 });
 const limitSocketChat = createRateLimiter({ windowMs: 60_000, max: 30 });
-const limitSocketSync = createRateLimiter({ windowMs: 60_000, max: 45 });
 
 function sanitizeClientSong(song) {
   if (!song || typeof song !== 'object') {
@@ -381,6 +383,30 @@ app.get('/api/music/cyapi/kugou/search', async (req, res) => {
   }
 });
 
+/** 导入外部歌单（网易云 / QQ 音乐分享链接） */
+app.post('/api/music/playlist/import', async (req, res) => {
+  if (!limitProxyRequest(`playlist:${getRequestIp(req)}`)) {
+    return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+  }
+
+  const platform = String(req.body?.platform || '').trim();
+  const input = String(req.body?.input || '').trim();
+  if (!input) return res.status(400).json({ error: '请粘贴歌单分享链接' });
+  if (platform !== 'netease' && platform !== 'qq') {
+    return res.status(400).json({ error: '不支持的平台' });
+  }
+
+  try {
+    const result = platform === 'netease'
+      ? await importNeteasePlaylist(input)
+      : await importQqPlaylist(input);
+    res.json(result);
+  } catch (err) {
+    console.error('Playlist import error:', err.message);
+    res.status(400).json({ error: err.message || '歌单导入失败' });
+  }
+});
+
 /** cyapi 酷狗音乐详情（播放链接、歌词） */
 app.get('/api/music/cyapi/kugou/song', async (req, res) => {
   if (!limitProxyRequest(`kugou-song:${getRequestIp(req)}`)) {
@@ -439,7 +465,8 @@ app.post('/api/rooms', (req, res) => {
 
   const name = req.body?.name;
   const password = req.body?.password;
-  const room = createRoom({ name, password });
+  const creatorId = req.body?.creatorId;
+  const room = createRoom({ name, password, creatorId });
   res.json(room);
 });
 
@@ -532,6 +559,18 @@ function rejectRateLimited(socket, limiter, kind, callback) {
   return false;
 }
 
+function broadcastPlaybackState(roomId) {
+  const internal = getRoomInternal(roomId);
+  if (!internal) return;
+  const state = buildPlaybackState(internal);
+  if (state) io.to(roomId).emit('playback_state', state);
+}
+
+function emitRoomAndPlayback(roomId, room) {
+  io.to(roomId).emit('room_update', room);
+  broadcastPlaybackState(roomId);
+}
+
 io.on('connection', (socket) => {
   socket.on('join_room', ({ roomId, nickname, password, readOnly, clientId, clientToken }, callback) => {
     const id = roomId?.toUpperCase();
@@ -578,6 +617,10 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: '加入房间失败' });
       return;
     }
+    if (joinedRoom.error) {
+      callback?.({ success: false, error: joinedRoom.error });
+      return;
+    }
 
     socketToRoom.set(socket.id, id);
     socketToUserId.set(socket.id, userId);
@@ -588,6 +631,7 @@ io.on('connection', (socket) => {
     const roomPayload = markRandomLoading(id) || joinedRoom;
 
     io.to(id).emit('room_update', roomPayload);
+    broadcastPlaybackState(id);
     callback?.({
       success: true,
       room: roomPayload,
@@ -599,7 +643,7 @@ io.on('connection', (socket) => {
     });
 
     ensurePlayback(id).then((room) => {
-      if (room) io.to(id).emit('room_update', room);
+      if (room) emitRoomAndPlayback(id, room);
     }).catch((err) => {
       console.error('Ensure playback after join failed:', err.message);
     });
@@ -624,6 +668,64 @@ io.on('connection', (socket) => {
 
     io.to(roomId).emit('room_update', result.room);
     callback?.({ success: true, room: result.room });
+  });
+
+  socket.on('kick_user', ({ userId: targetUserId }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'kick_user', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const actorId = getSocketUserId(socket);
+    const result = kickUser(roomId, actorId, targetUserId, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('room_update', result.room);
+
+    for (const [sid, rid] of socketToRoom.entries()) {
+      if (rid !== roomId || socketToUserId.get(sid) !== targetUserId) continue;
+      const kickedSocket = io.sockets.sockets.get(sid);
+      socketToRoom.delete(sid);
+      socketToUserId.delete(sid);
+      kickedSocket?.leave(roomId);
+      kickedSocket?.emit('kicked', {
+        message: '你已被房主移出房间，无法再次进入',
+      });
+    }
+
+    callback?.({
+      success: true,
+      room: result.room,
+      message: `已移出「${result.kickedNickname}」，该用户将无法再次进入本房间`,
+    });
+  });
+
+  socket.on('transfer_owner', ({ userId: targetUserId }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'transfer_owner', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const actorId = getSocketUserId(socket);
+    const result = transferOwner(roomId, actorId, targetUserId, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('room_update', result.room);
+    callback?.({ success: true, room: result.room, message: result.message });
   });
 
   socket.on('leave_room', (_payload, callback) => {
@@ -672,7 +774,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(roomId).emit('room_update', result.room);
+    emitRoomAndPlayback(roomId, result.room);
     recordSongRequest(clean.song);
     callback?.({ success: true, room: result.room });
   });
@@ -713,7 +815,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(roomId).emit('room_update', result.room);
+    emitRoomAndPlayback(roomId, result.room);
     callback?.({ success: true, room: result.room });
   });
 
@@ -733,11 +835,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(roomId).emit('room_update', result.room);
+    emitRoomAndPlayback(roomId, result.room);
     callback?.({ success: true, room: result.room });
   });
 
-  socket.on('request_jump', ({ queueId }, callback) => {
+  socket.on('request_jump', async ({ queueId }, callback) => {
     if (rejectReadOnly(socket, callback)) return;
     if (rejectRateLimited(socket, limitSocketAction, 'request_jump', callback)) return;
 
@@ -747,7 +849,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const result = requestJump(roomId, getSocketUserId(socket), queueId);
+    const result = await requestJump(roomId, getSocketUserId(socket), queueId);
     if (result.error) {
       callback?.({ success: false, error: result.error });
       return;
@@ -833,7 +935,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(roomId).emit('room_update', result.room);
+    emitRoomAndPlayback(roomId, result.room);
     callback?.({ success: true, room: result.room });
   });
 
@@ -893,7 +995,7 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: '仅房主可暂停/播放' });
       return;
     }
-    io.to(roomId).emit('room_update', updated);
+    emitRoomAndPlayback(roomId, updated);
     callback?.({ success: true, room: updated });
   });
 
@@ -912,25 +1014,8 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: '仅房主可调节进度' });
       return;
     }
-    io.to(roomId).emit('room_update', updated);
+    emitRoomAndPlayback(roomId, updated);
     callback?.({ success: true, room: updated });
-  });
-
-  socket.on('sync_time', ({ time }) => {
-    const roomId = socketToRoom.get(socket.id);
-    if (!roomId) return;
-    if (!limitSocketSync(`sync_time:${socket.id}`)) return;
-
-    const nextTime = Number(time);
-    if (!Number.isFinite(nextTime) || nextTime < 0) return;
-
-    const room = getRoomInternal(roomId);
-    if (!room || !room.isPlaying) return;
-    if (room.ownerId !== getSocketUserId(socket) || room.ownerConnectionId !== socket.id) return;
-
-    room.startedAt = Date.now() - nextTime * 1000;
-    room.currentTime = nextTime;
-    persistRoomById(roomId);
   });
 
   socket.on('disconnect', () => {
@@ -945,15 +1030,16 @@ io.on('connection', (socket) => {
       const result = removeUser(roomId, userId, socket.id);
       if (result?.deleted || result?.empty) return;
       io.to(roomId).emit('room_update', result);
+      broadcastPlaybackState(roomId);
     }, DISCONNECT_GRACE_MS);
   });
 });
 
-let playbackTickRunning = false;
+let autoAdvanceRunning = false;
 
-async function broadcastPlaybackState() {
-  if (playbackTickRunning) return;
-  playbackTickRunning = true;
+async function checkAutoAdvance() {
+  if (autoAdvanceRunning) return;
+  autoAdvanceRunning = true;
 
   try {
     for (const roomId of listRoomIds()) {
@@ -962,27 +1048,17 @@ async function broadcastPlaybackState() {
 
       const advanced = await advancePlaybackIfEnded(roomId);
       if (advanced) {
-        io.to(roomId).emit('room_update', advanced);
-        continue;
+        emitRoomAndPlayback(roomId, advanced);
       }
-
-      const state = {
-        currentTime: internal.startedAt
-          ? (Date.now() - internal.startedAt) / 1000
-          : internal.currentTime,
-        isPlaying: true,
-      };
-
-      io.to(roomId).emit('playback_tick', state);
     }
   } finally {
-    playbackTickRunning = false;
+    autoAdvanceRunning = false;
   }
 }
 
 setInterval(() => {
-  void broadcastPlaybackState();
-}, 250);
+  void checkAutoAdvance();
+}, 1000);
 
 await initRooms();
 

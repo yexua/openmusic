@@ -4,16 +4,24 @@ import type { SearchResult } from '../types';
 import { getCoverUrl, songKey } from '../api/music';
 import SourceBadge from './SourceBadge';
 
-const PAGE_SIZE = 7;
+const PAGE_SIZE = 6;
 
 interface Props {
   results: SearchResult[];
   addingId: string | null;
   onAdd: (song: SearchResult) => void;
   keyword?: string;
+  /** 桌面弹层等场景始终显示点歌按钮 */
+  alwaysShowActions?: boolean;
 }
 
-export default function SongResultList({ results, addingId, onAdd, keyword }: Props) {
+export default function SongResultList({
+  results,
+  addingId,
+  onAdd,
+  keyword,
+  alwaysShowActions = false,
+}: Props) {
   const [page, setPage] = useState(1);
 
   const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
@@ -62,7 +70,9 @@ export default function SongResultList({ results, addingId, onAdd, keyword }: Pr
                 onAdd(song);
               }}
               disabled={addingId === songKey(song)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-netease-red/10 text-netease-red text-xs font-medium opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-netease-red hover:text-white transition-all disabled:opacity-50 flex-shrink-0"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full bg-netease-red/10 text-netease-red text-xs font-medium hover:bg-netease-red hover:text-white transition-all disabled:opacity-50 flex-shrink-0 ${
+                alwaysShowActions ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+              }`}
             >
               {addingId === songKey(song) ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -75,32 +85,30 @@ export default function SongResultList({ results, addingId, onAdd, keyword }: Pr
         ))}
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-4 mt-2 border-t border-netease-border/40">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-netease-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            上一页
-          </button>
-          <span className="text-xs text-netease-muted">
-            {page} / {totalPages}
-            <span className="text-netease-muted/50 ml-1">共 {results.length} 首</span>
-          </span>
-          <button
-            type="button"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-netease-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            下一页
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <div className="flex items-center justify-between pt-4 mt-2 border-t border-netease-border/40">
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => setPage((p) => p - 1)}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-netease-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          上一页
+        </button>
+        <span className="text-xs text-netease-muted">
+          {page} / {totalPages}
+          <span className="text-netease-muted/50 ml-1">共 {results.length} 首</span>
+        </span>
+        <button
+          type="button"
+          disabled={page >= totalPages}
+          onClick={() => setPage((p) => p + 1)}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-netease-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          下一页
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 }

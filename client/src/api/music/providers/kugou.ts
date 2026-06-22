@@ -48,7 +48,7 @@ export const kugouProvider: MusicProvider = {
   description: '通过迟言 API 搜索',
   async search(keyword) {
     if (!keyword.trim()) return [];
-    const params = new URLSearchParams({ q: keyword.trim(), num: '15' });
+    const params = new URLSearchParams({ q: keyword.trim(), num: '30' });
     const res = await fetchWithTimeout(`/api/music/cyapi/kugou/search?${params}`);
     if (!res.ok) return [];
     const data = await res.json() as KugouListItem[];

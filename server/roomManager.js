@@ -76,10 +76,13 @@ function snapshotRoomForStorage(room) {
     name: room.name,
     passwordHash: room.passwordHash,
     creatorId: room.creatorId ?? null,
+    bannedUserIds: Array.from(room.bannedUserIds || []),
     queue: room.queue,
     current: room.current,
     isPlaying: room.isPlaying,
     currentTime: getPlaybackTime(room),
+    playbackVersion: room.playbackVersion ?? 0,
+    playbackUpdatedAt: room.playbackUpdatedAt ?? Date.now(),
     messages: room.messages.slice(-100),
     jumpRequests: room.jumpRequests,
     skipRequests: room.skipRequests,
@@ -95,12 +98,15 @@ function restoreRoomFromStorage(data) {
   room.current = data.current ?? null;
   room.isPlaying = Boolean(data.isPlaying);
   room.currentTime = data.currentTime ?? 0;
+  room.playbackVersion = data.playbackVersion ?? 0;
+  room.playbackUpdatedAt = data.playbackUpdatedAt ?? Date.now();
   room.messages = data.messages || [];
   room.jumpRequests = data.jumpRequests || [];
   room.skipRequests = data.skipRequests || [];
   room.randomPlayedKeys = new Set(data.randomPlayedKeys || []);
   room.nextRandom = data.nextRandom ?? null;
   room.creatorId = data.creatorId ?? null;
+  room.bannedUserIds = new Set(data.bannedUserIds || []);
   room.createdAt = data.createdAt ?? Date.now();
 
   if (room.isPlaying && room.current) {
@@ -182,6 +188,25 @@ function normalizeRoomName(name, roomId) {
   return trimmed.slice(0, 30) || `房间 ${roomId}`;
 }
 
+function bumpPlaybackState(room) {
+  room.playbackVersion = (room.playbackVersion || 0) + 1;
+  room.playbackUpdatedAt = Date.now();
+}
+
+export function buildPlaybackState(room) {
+  if (!room) return null;
+  repairPlaybackClock(room);
+  return {
+    roomId: room.id,
+    version: room.playbackVersion || 0,
+    trackId: room.current?.queueId || '',
+    status: room.isPlaying ? 'playing' : 'paused',
+    startedAt: room.isPlaying && room.startedAt ? room.startedAt : 0,
+    currentTime: getPlaybackTime(room),
+    updatedAt: room.playbackUpdatedAt || Date.now(),
+  };
+}
+
 function createEmptyRoom(roomId, name, passwordHash = null) {
   return {
     id: roomId,
@@ -189,11 +214,14 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     passwordHash,
     creatorId: null,
     ownerId: null,
+    bannedUserIds: new Set(),
     queue: [],
     current: null,
     isPlaying: false,
     currentTime: 0,
     startedAt: null,
+    playbackVersion: 0,
+    playbackUpdatedAt: Date.now(),
     users: new Map(),
     ownerConnectionId: null,
     jumpRequests: [],
@@ -220,7 +248,12 @@ function isEligibleOwner(user) {
   return Boolean(user && !user.readOnly);
 }
 
-/** 记录房间创建者（首个可操控的非只读用户，持久保留） */
+function sanitizeCreatorId(value) {
+  const id = String(value || '').trim();
+  return /^[a-zA-Z0-9_-]{8,64}$/.test(id) ? id : '';
+}
+
+/** 记录房间创建者（首个可操控的非只读用户，或由创建房间 API 指定，持久保留） */
 function ensureCreatorId(room, userId) {
   if (room.creatorId) return;
   const user = room.users.get(userId);
@@ -230,18 +263,31 @@ function ensureCreatorId(room, userId) {
 }
 
 /**
- * 刷新房主：创建者在线时始终为房主；否则在现任房主无效时让位给最早加入者。
+ * 刷新房主：现任房主有效则保留；无效时优先创建者，否则最早加入者。
+ * preferCreator：创建者重新加入时强制恢复房主。
  */
-function refreshRoomOwner(room) {
-  const creator = room.creatorId ? room.users.get(room.creatorId) : null;
-  if (isEligibleOwner(creator)) {
-    room.ownerId = room.creatorId;
+function refreshRoomOwner(room, options = {}) {
+  const { preferCreator = false } = options;
+
+  if (preferCreator) {
+    const creator = room.creatorId ? room.users.get(room.creatorId) : null;
+    if (isEligibleOwner(creator)) {
+      room.ownerId = room.creatorId;
+      refreshOwnerConnection(room);
+      return;
+    }
+  }
+
+  const owner = room.ownerId ? room.users.get(room.ownerId) : null;
+  if (isEligibleOwner(owner)) {
     refreshOwnerConnection(room);
     return;
   }
 
-  const owner = room.ownerId ? room.users.get(room.ownerId) : null;
-  if (!isEligibleOwner(owner)) {
+  const creator = room.creatorId ? room.users.get(room.creatorId) : null;
+  if (isEligibleOwner(creator)) {
+    room.ownerId = room.creatorId;
+  } else {
     room.ownerId = getNextOwnerId(room);
   }
   refreshOwnerConnection(room);
@@ -277,6 +323,7 @@ function freezePlayback(room) {
   room.currentTime = getPlaybackTime(room);
   room.isPlaying = false;
   room.startedAt = null;
+  bumpPlaybackState(room);
 }
 
 function getSongDurationSeconds(song) {
@@ -299,7 +346,7 @@ function getSongDurationSeconds(song) {
   return lastTime > 0 ? lastTime + LRC_TAIL_PADDING_SEC : 0;
 }
 
-export function createRoom({ name, password } = {}) {
+export function createRoom({ name, password, creatorId } = {}) {
   let roomId;
   do {
     roomId = generateRoomId();
@@ -308,6 +355,10 @@ export function createRoom({ name, password } = {}) {
   const trimmed = String(password || '').trim();
   const passwordHash = trimmed ? hashPassword(trimmed) : null;
   const room = createEmptyRoom(roomId, name, passwordHash);
+  const reservedCreator = sanitizeCreatorId(creatorId);
+  if (reservedCreator) {
+    room.creatorId = reservedCreator;
+  }
   rooms.set(roomId, room);
   persistRoom(room);
   invalidateRoomsListCache();
@@ -358,9 +409,19 @@ export function roomExists(roomId) {
   return rooms.has(roomId?.toUpperCase());
 }
 
+export function isUserBanned(roomId, userId) {
+  const room = rooms.get(roomId?.toUpperCase());
+  if (!room || !userId) return false;
+  return room.bannedUserIds?.has(userId) ?? false;
+}
+
 export function addUser(roomId, userId, nickname, options = {}) {
   const room = rooms.get(roomId);
   if (!room) return null;
+
+  if (room.bannedUserIds?.has(userId)) {
+    return { error: '你已被移出该房间，无法再次进入' };
+  }
 
   cancelRoomDestroy(room);
 
@@ -375,8 +436,17 @@ export function addUser(roomId, userId, nickname, options = {}) {
     connectionIds,
   });
 
+  reassignOrphanQueueOwnership(
+    room,
+    userId,
+    normalizeNickname(nickname) || existing?.nickname || getDefaultNickname(room),
+  );
+
   ensureCreatorId(room, userId);
-  refreshRoomOwner(room);
+  refreshRoomOwner(room, { preferCreator: room.creatorId === userId });
+  if (room.creatorId === userId) {
+    refreshOwnerConnection(room);
+  }
   if (room.isPlaying && room.current && !room.startedAt) {
     room.startedAt = Date.now() - (room.currentTime || 0) * 1000;
   }
@@ -394,6 +464,27 @@ function updateRequesterNickname(item, socketId, nickname) {
   if (item?.requestedById === socketId) {
     item.requestedBy = nickname;
   }
+}
+
+function reassignOrphanQueueOwnership(room, userId, nickname) {
+  const normalizedNick = normalizeNickname(nickname);
+  if (!normalizedNick) return;
+
+  const activeUserIds = new Set(room.users.keys());
+  const reassignIfOrphan = (item) => {
+    if (!item || item.requestedBy !== normalizedNick) return;
+    if (item.requestedById === userId) return;
+    if (item.requestedById && activeUserIds.has(item.requestedById)) return;
+    item.requestedById = userId;
+  };
+
+  reassignIfOrphan(room.current);
+  room.queue.forEach(reassignIfOrphan);
+}
+
+function isQueueRequester(item, socketId, user) {
+  if (!item) return false;
+  return item.requestedById === socketId || item.requestedBy === user?.nickname;
 }
 
 export function renameUser(roomId, socketId, nickname) {
@@ -426,6 +517,78 @@ export function renameUser(roomId, socketId, nickname) {
   return { room: serializeRoom(room) };
 }
 
+export function kickUser(roomId, actorId, targetUserId, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可踢人' };
+  if (targetUserId === actorId) return { error: '不能踢出自己' };
+  if (targetUserId === room.creatorId) return { error: '不能踢出房间创建者' };
+
+  const target = room.users.get(targetUserId);
+  if (!target) return { error: '用户不在房间中' };
+
+  if (!room.bannedUserIds) room.bannedUserIds = new Set();
+  room.bannedUserIds.add(targetUserId);
+
+  room.users.delete(targetUserId);
+
+  if (room.users.size === 0) {
+    if (room.isPlaying && room.current) {
+      room.currentTime = getPlaybackTime(room);
+      room.startedAt = null;
+      bumpPlaybackState(room);
+    } else {
+      freezePlayback(room);
+    }
+    room.ownerId = null;
+    room.ownerConnectionId = null;
+    persistRoom(room);
+    scheduleRoomDestroy(roomId);
+    invalidateRoomsListCache();
+    return {
+      room: serializeRoom(room),
+      kickedUserId: targetUserId,
+      kickedNickname: target.nickname,
+    };
+  }
+
+  refreshRoomOwner(room);
+  if (!room.ownerId) {
+    freezePlayback(room);
+  }
+
+  room.jumpRequests = room.jumpRequests.filter((r) => room.users.has(r.requestedBy));
+  room.skipRequests = room.skipRequests.filter((r) => room.users.has(r.requestedBy));
+
+  persistRoom(room);
+  invalidateRoomsListCache();
+  return {
+    room: serializeRoom(room),
+    kickedUserId: targetUserId,
+    kickedNickname: target.nickname,
+  };
+}
+
+export function transferOwner(roomId, actorId, targetUserId, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可转让' };
+  if (targetUserId === actorId) return { error: '不能转让给自己' };
+
+  const target = room.users.get(targetUserId);
+  if (!target) return { error: '用户不在房间中' };
+  if (!isEligibleOwner(target)) return { error: '不能转让给 TV 只读用户' };
+
+  room.ownerId = targetUserId;
+  refreshOwnerConnection(room);
+  persistRoom(room);
+  invalidateRoomsListCache();
+  return {
+    room: serializeRoom(room),
+    message: `房主已转让给「${target.nickname}」`,
+  };
+}
+
 export function removeUser(roomId, userId, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room) return null;
@@ -455,6 +618,7 @@ export function removeUser(roomId, userId, connectionId = null) {
     if (room.isPlaying && room.current) {
       room.currentTime = getPlaybackTime(room);
       room.startedAt = null;
+      bumpPlaybackState(room);
     } else {
       freezePlayback(room);
     }
@@ -496,24 +660,12 @@ function songIdentity(source, id) {
   return `${source || 'netease'}:${id}`;
 }
 
-function hasDuplicateRequest(room, song, requestedBy) {
+function isSongInPlaylist(room, song) {
   const key = songIdentity(song.source, song.id);
-  if (
-    room.current
-    && (
-      room.current.requestedById === requestedBy.id
-      || (!room.current.requestedById && room.current.requestedBy === requestedBy.nickname)
-    )
-    && songIdentity(room.current.source, room.current.id) === key
-  ) {
+  if (room.current && songIdentity(room.current.source, room.current.id) === key) {
     return true;
   }
-  return room.queue.some(
-    (item) => (
-      item.requestedById === requestedBy.id
-      || (!item.requestedById && item.requestedBy === requestedBy.nickname)
-    ) && songIdentity(item.source, item.id) === key,
-  );
+  return room.queue.some((item) => songIdentity(item.source, item.id) === key);
 }
 
 export async function addToQueue(roomId, song, requestedByUser) {
@@ -525,8 +677,8 @@ export async function addToQueue(roomId, song, requestedByUser) {
     nickname: requestedByUser?.nickname || '匿名',
   };
 
-  if (hasDuplicateRequest(room, song, requestedBy)) {
-    return { error: '你已在歌单中点过这首歌' };
+  if (isSongInPlaylist(room, song)) {
+    return { error: '这首歌已经在歌单里啦' };
   }
 
   if (room.queue.length >= MAX_QUEUE_LENGTH) {
@@ -562,9 +714,7 @@ export function removeFromQueue(roomId, socketId, queueId) {
 
   const user = room.users.get(socketId);
   const isRoomOwner = room.ownerId === socketId;
-  const isRequester = item.requestedById
-    ? item.requestedById === socketId
-    : item.requestedBy === user?.nickname;
+  const isRequester = isQueueRequester(item, socketId, user);
   if (!isRoomOwner && !isRequester) {
     return { error: '只能删除自己点的歌' };
   }
@@ -677,6 +827,7 @@ async function playNextUnlocked(room) {
       room.isPlaying = true;
       room.currentTime = 0;
       room.startedAt = Date.now();
+      bumpPlaybackState(room);
       return;
     }
 
@@ -691,6 +842,7 @@ async function playNextUnlocked(room) {
       room.isPlaying = true;
       room.currentTime = 0;
       room.startedAt = Date.now();
+      bumpPlaybackState(room);
       void ensureNextRandom(room);
       return;
     }
@@ -700,6 +852,7 @@ async function playNextUnlocked(room) {
     room.isPlaying = false;
     room.currentTime = 0;
     room.startedAt = null;
+    bumpPlaybackState(room);
     return;
   }
 
@@ -708,6 +861,7 @@ async function playNextUnlocked(room) {
   room.isPlaying = true;
   room.currentTime = 0;
   room.startedAt = Date.now();
+  bumpPlaybackState(room);
 }
 
 async function playNext(room) {
@@ -812,6 +966,7 @@ export function setPlaying(roomId, socketId, isPlaying, connectionId = null) {
       : room.currentTime;
     room.startedAt = null;
   }
+  bumpPlaybackState(room);
 
   persistRoom(room);
   return serializeRoom(room);
@@ -827,11 +982,26 @@ export function seekTo(roomId, socketId, time, connectionId = null) {
 
   room.currentTime = nextTime;
   room.startedAt = room.isPlaying ? Date.now() - room.currentTime * 1000 : null;
+  bumpPlaybackState(room);
   persistRoom(room);
   return serializeRoom(room);
 }
 
-export function requestJump(roomId, socketId, queueId) {
+async function applyJumpToFront(room, queueId) {
+  const qIdx = room.queue.findIndex((s) => s.queueId === queueId);
+  if (qIdx === -1) return false;
+
+  const [song] = room.queue.splice(qIdx, 1);
+  room.queue.unshift(song);
+  if (!room.current) {
+    await withPlaybackLock(room, async () => {
+      if (!room.current) await playNextUnlocked(room);
+    });
+  }
+  return true;
+}
+
+export async function requestJump(roomId, socketId, queueId) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
 
@@ -840,21 +1010,13 @@ export function requestJump(roomId, socketId, queueId) {
 
   const item = room.queue.find((s) => s.queueId === queueId);
   if (!item) return { error: '歌曲不在队列中' };
-  const isRequester = item.requestedById
-    ? item.requestedById === socketId
-    : item.requestedBy === user?.nickname;
-  if (!isRequester) return { error: '只能为自己点的歌申请插队' };
-  if (room.jumpRequests.some((r) => r.queueId === queueId)) return { error: '已提交过插队申请' };
+  const isRequester = isQueueRequester(item, socketId, user);
+  if (!isRequester) return { error: '只能为自己点的歌插队' };
 
-  room.jumpRequests.push({
-    id: generateId(),
-    queueId,
-    songName: item.name,
-    nickname: user.nickname,
-    requestedBy: socketId,
-    requestedAt: Date.now(),
-  });
+  const jumped = await applyJumpToFront(room, queueId);
+  if (!jumped) return { error: '歌曲不在队列中' };
 
+  room.jumpRequests = room.jumpRequests.filter((r) => r.queueId !== queueId);
   persistRoom(room);
   return { room: serializeRoom(room) };
 }
@@ -870,16 +1032,7 @@ export async function approveJump(roomId, socketId, requestId, connectionId = nu
   const req = room.jumpRequests[reqIdx];
   room.jumpRequests.splice(reqIdx, 1);
 
-  const qIdx = room.queue.findIndex((s) => s.queueId === req.queueId);
-  if (qIdx !== -1) {
-    const [song] = room.queue.splice(qIdx, 1);
-    room.queue.unshift(song);
-    if (!room.current) {
-      await withPlaybackLock(room, async () => {
-        if (!room.current) await playNextUnlocked(room);
-      });
-    }
-  }
+  await applyJumpToFront(room, req.queueId);
 
   persistRoom(room);
   return { room: serializeRoom(room) };
@@ -977,6 +1130,9 @@ export function addChatMessage(roomId, userId, text) {
 
 export function getPlaybackTime(room) {
   if (!room.current) return 0;
+  if (room.isPlaying && room.current && !room.startedAt) {
+    room.startedAt = Date.now() - (room.currentTime || 0) * 1000;
+  }
   if (room.isPlaying && room.startedAt) {
     return (Date.now() - room.startedAt) / 1000;
   }

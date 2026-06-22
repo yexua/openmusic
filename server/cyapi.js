@@ -26,6 +26,10 @@ export function kugouMusicEndpoint() {
   return `${CYAPI_BASE}/kugou_music.php`;
 }
 
+export function songListEndpoint() {
+  return `${CYAPI_BASE}/song_list.php`;
+}
+
 export function wyrpEndpoint() {
   return `${CYAPI_BASE}/wyrp.php`;
 }
@@ -286,11 +290,118 @@ function withApiKey(params) {
 }
 
 function normalizeQqSearchPayload(data) {
-  if (Array.isArray(data)) return data.filter((item) => item && !item.error && item.id);
-  if (Array.isArray(data?.list)) return data.list.filter((item) => item && !item.error && item.id);
-  if (Array.isArray(data?.data)) return data.data.filter((item) => item && !item.error && item.id);
-  if (data && !data.error && data.id) return [data];
+  let rawList = [];
+  if (Array.isArray(data)) {
+    rawList = data;
+  } else if (Array.isArray(data?.list)) {
+    rawList = data.list;
+  } else if (Array.isArray(data?.data)) {
+    rawList = data.data;
+  } else if (Array.isArray(data?.data?.list)) {
+    rawList = data.data.list;
+  } else if (Array.isArray(data?.data?.song?.list)) {
+    rawList = data.data.song.list;
+  } else if (Array.isArray(data?.result?.list)) {
+    rawList = data.result.list;
+  } else if (data && !data.error) {
+    rawList = [data];
+  }
+
+  return rawList
+    .map(mapQqSearchItem)
+    .filter(Boolean);
+}
+
+function extractQqSongId(item) {
+  return String(
+    item?.id
+    || item?.mid
+    || item?.songmid
+    || item?.song_mid
+    || item?.musicid
+    || '',
+  ).trim();
+}
+
+function extractQqSongName(item) {
+  return String(
+    item?.name
+    || item?.songname
+    || item?.song_name
+    || item?.title
+    || '',
+  ).trim();
+}
+
+function extractQqArtists(item) {
+  if (typeof item?.artists === 'string' && item.artists.trim()) {
+    return [{ name: item.artists.trim() }];
+  }
+  if (Array.isArray(item?.artists) && item.artists.length > 0) {
+    return item.artists.map((entry) => (
+      typeof entry === 'string'
+        ? { name: entry }
+        : { name: entry?.name || entry?.title || '' }
+    )).filter((a) => a.name);
+  }
+  if (item?.singer && typeof item.singer === 'object' && !Array.isArray(item.singer)) {
+    const name = item.singer.name || item.singer.title || '';
+    return name ? [{ name }] : [];
+  }
+  if (Array.isArray(item?.singer) && item.singer.length > 0) {
+    return item.singer.map((entry) => (
+      typeof entry === 'string' ? { name: entry } : { name: entry?.name || entry?.title || '' }
+    ));
+  }
+  if (typeof item?.singer === 'string' && item.singer.trim()) {
+    return [{ name: item.singer.trim() }];
+  }
+  if (typeof item?.singername === 'string' && item.singername.trim()) {
+    return [{ name: item.singername.trim() }];
+  }
+  if (typeof item?.artist === 'string' && item.artist.trim()) {
+    return [{ name: item.artist.trim() }];
+  }
   return [];
+}
+
+function extractQqCover(item) {
+  const cover = item?.cover;
+  if (typeof cover === 'string' && cover.trim()) return cover.trim();
+  if (cover && typeof cover === 'object') {
+    return cover.medium || cover.large || cover.small || '';
+  }
+  return item.pic || item.album_pic || item.albumpic || item.albumimg || '';
+}
+
+function mapQqSearchItem(item) {
+  if (!item || item.error) return null;
+
+  const id = extractQqSongId(item);
+  if (!id) return null;
+
+  const artists = extractQqArtists(item);
+  const albumRaw = item.album;
+  const albumName = typeof albumRaw === 'string'
+    ? albumRaw
+    : albumRaw?.name || item.albumname || item.album_name || '';
+  const coverUrl = extractQqCover(item);
+
+  const durationRaw = Number(item.duration ?? item.interval ?? item.song_time ?? 0);
+  const duration = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
+
+  return {
+    ...item,
+    id,
+    name: extractQqSongName(item) || '未知歌曲',
+    artists: artists.length > 0 ? artists : [{ name: '未知歌手' }],
+    album: albumName ? { name: albumName } : item.album,
+    duration,
+    cover: coverUrl || item.cover,
+    pic: coverUrl || item.pic,
+    url: item.url || item.music_url || item.play_url,
+    lyric: item.lyric || item.lrc,
+  };
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -309,7 +420,7 @@ async function runWithConcurrency(items, limit, worker) {
 
 /** QQ 音乐搜索：优先单请求列表，必要时小并发拉取 n=1..num */
 export async function searchQqMusic(keyword, num = 15) {
-  const limit = Math.min(Math.max(num, 1), 10);
+  const limit = Math.min(Math.max(num, 1), 30);
   const endpoint = qqMusicEndpoint();
 
   const baseParams = withApiKey({
@@ -321,8 +432,7 @@ export async function searchQqMusic(keyword, num = 15) {
   try {
     const response = await fetchWithTimeout(`${endpoint}?${baseParams}`);
     const songs = normalizeQqSearchPayload(await response.json());
-    if (songs.length > 1) return songs.slice(0, limit);
-    if (songs.length === 1 && limit === 1) return songs;
+    if (songs.length > 0) return songs.slice(0, limit);
   } catch {
     // Fall back to the n-based API below.
   }
@@ -344,6 +454,31 @@ export async function searchQqMusic(keyword, num = 15) {
   });
 
   return batches.flat().slice(0, limit);
+}
+
+/** QQ 音乐歌单：迟言 song_list.php */
+export async function fetchQqPlaylistSongList(shareUrl) {
+  const params = withApiKey({ url: shareUrl });
+  const response = await fetchWithTimeout(`${songListEndpoint()}?${params}`, {}, 30000);
+  const data = await response.json();
+  if (!data || !Array.isArray(data.song_list)) {
+    throw new Error('歌单解析失败');
+  }
+  return {
+    total: Number(data.total_num) || data.song_list.length,
+    songs: data.song_list,
+  };
+}
+
+/** QQ 音乐：通过 mid 获取单曲详情 */
+export async function getQqSongByMid(mid) {
+  const id = String(mid || '').trim();
+  if (!id) return null;
+
+  const params = withApiKey({ mid: id, type: 'json' });
+  const response = await fetchWithTimeout(`${qqMusicEndpoint()}?${params}`);
+  const songs = normalizeQqSearchPayload(await response.json());
+  return songs[0] || null;
 }
 
 /** 酷狗音乐搜索 */

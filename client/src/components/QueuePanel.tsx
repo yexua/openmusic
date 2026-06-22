@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Trash2, Music, Zap } from 'lucide-react';
+import { getClientId } from '../lib/clientId';
 import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import { getCoverUrl } from '../api/music';
@@ -11,7 +12,11 @@ const ROW_HEIGHT = 64;
 const ROW_GAP = 6;
 const LIST_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT + (VISIBLE_ROWS - 1) * ROW_GAP;
 
-export default function QueuePanel() {
+interface Props {
+  fillHeight?: boolean;
+}
+
+export default function QueuePanel({ fillHeight = false }: Props) {
   const room = useRoomStore((s) => s.room);
   const nickname = useRoomStore((s) => s.nickname);
   const mySocketId = useRoomStore((s) => s.mySocketId);
@@ -29,7 +34,6 @@ export default function QueuePanel() {
   }, [room]);
 
   const currentKey = room?.current?.queueId || '';
-  const pendingQueueIds = new Set(room?.jumpRequests.map((r) => r.queueId) ?? []);
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -39,10 +43,10 @@ export default function QueuePanel() {
     setJumpMsg('');
     const res = await requestJump(queueId);
     if (res.success) {
-      setJumpMsg('已提交插队申请，等待房主同意');
+      setJumpMsg('已插队到下一首');
       setTimeout(() => setJumpMsg(''), 3000);
     } else {
-      setJumpMsg(res.error || '申请失败');
+      setJumpMsg(res.error || '插队失败');
     }
   };
 
@@ -51,8 +55,10 @@ export default function QueuePanel() {
   if (allSongs.length === 0) {
     return (
       <div
-        className="flex flex-col items-center justify-center text-netease-muted"
-        style={{ height: LIST_HEIGHT }}
+        className={`flex flex-col items-center justify-center text-netease-muted ${
+          fillHeight ? 'flex-1 min-h-0' : ''
+        }`}
+        style={fillHeight ? undefined : { height: LIST_HEIGHT }}
       >
         <Music className="w-7 h-7 mb-2 opacity-30" />
         <p className="text-xs text-center">队列为空，搜索或双击点歌</p>
@@ -61,23 +67,22 @@ export default function QueuePanel() {
   }
 
   return (
-    <div className="flex flex-col">
+    <div className={`flex flex-col ${fillHeight ? 'h-full min-h-0' : ''}`}>
       {jumpMsg && (
         <p className="text-xs text-amber-400/80 mb-1.5 px-1 flex-shrink-0">{jumpMsg}</p>
       )}
 
       <div
-        className="space-y-1.5 overflow-y-auto pr-0.5"
-        style={{ height: LIST_HEIGHT }}
+        className={`space-y-1.5 overflow-y-auto pr-0.5 ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+        style={fillHeight ? undefined : { height: LIST_HEIGHT }}
       >
         {allSongs.map((song, i) => {
+          const myUserId = mySocketId || getClientId();
           const isMine = !song.isCurrent && (
-            song.requestedById
-              ? song.requestedById === mySocketId
-              : song.requestedBy === nickname
+            (myUserId && song.requestedById === myUserId)
+            || song.requestedBy === nickname
           );
           const canRemove = !song.isCurrent && (isOwner || isMine);
-          const hasPending = pendingQueueIds.has(song.queueId);
 
           return (
             <div
@@ -120,11 +125,6 @@ export default function QueuePanel() {
                     source={song.source || 'netease'}
                     className="rounded-full px-1.5 py-0 text-[9px] leading-4"
                   />
-                  {hasPending && (
-                    <span className="rounded-full bg-amber-400/10 px-1.5 py-0 text-[9px] leading-4 text-amber-300 flex-shrink-0">
-                      待审
-                    </span>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 text-[11px] leading-4 text-netease-muted min-w-0">
                   <span className="min-w-0 truncate" title={song.artist}>
@@ -138,11 +138,11 @@ export default function QueuePanel() {
                 </div>
               </div>
               <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                {isMine && !hasPending && (
+                {isMine && (
                   <button
                     onClick={() => handleJumpRequest(song.queueId)}
                     className="p-1.5 rounded-lg text-amber-400/75 hover:text-amber-300 hover:bg-amber-400/10 transition-colors"
-                    title="申请插队"
+                    title="插队到下一首"
                   >
                     <Zap className="w-3.5 h-3.5" />
                   </button>

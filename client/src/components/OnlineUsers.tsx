@@ -1,24 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Crown, Pencil, Users, X } from 'lucide-react';
+import { Check, Crown, Pencil, UserMinus, Users, X } from 'lucide-react';
 import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
+import ConfirmModal from './ConfirmModal';
 import type { RoomUser } from '../types';
 
 interface Props {
   users: RoomUser[];
   ownerId?: string | null;
   creatorId?: string | null;
+  onNotice?: (message: string, type: 'success' | 'error') => void;
 }
 
-export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
+type PendingAction =
+  | { type: 'kick'; user: RoomUser }
+  | { type: 'transfer'; user: RoomUser };
+
+export default function OnlineUsers({ users, ownerId, creatorId, onNotice }: Props) {
   const mySocketId = useRoomStore((s) => s.mySocketId);
+  const isOwner = useRoomStore((s) => s.isOwner);
   const nickname = useRoomStore((s) => s.nickname);
   const setNickname = useRoomStore((s) => s.setNickname);
-  const { renameUser } = useSocket();
+  const { renameUser, kickUser, transferOwner } = useSocket();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [transferPickOpen, setTransferPickOpen] = useState(false);
   const [draftName, setDraftName] = useState(nickname);
   const [saving, setSaving] = useState(false);
+  const [kickingId, setKickingId] = useState<string | null>(null);
+  const [transferringId, setTransferringId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [error, setError] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -36,6 +47,11 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
     });
   }, [users, mySocketId, ownerId, creatorId]);
 
+  const transferCandidates = useMemo(
+    () => orderedUsers.filter((user) => user.id !== mySocketId && !user.readOnly),
+    [orderedUsers, mySocketId],
+  );
+
   useEffect(() => {
     if (!open) return;
 
@@ -44,6 +60,7 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
       if (panelRef.current?.contains(target)) return;
       setOpen(false);
       setEditing(false);
+      setTransferPickOpen(false);
       setError('');
     };
 
@@ -70,6 +87,59 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
     }
     setSaving(false);
   };
+
+  const handleKick = (user: RoomUser) => {
+    if (!isOwner || kickingId) return;
+    setPendingAction({ type: 'kick', user });
+  };
+
+  const handleTransfer = (user: RoomUser) => {
+    if (!isOwner || transferringId) return;
+    setPendingAction({ type: 'transfer', user });
+  };
+
+  const executePendingAction = async () => {
+    if (!pendingAction) return;
+
+    if (pendingAction.type === 'kick') {
+      const user = pendingAction.user;
+      setKickingId(user.id);
+      setError('');
+      const res = await kickUser(user.id);
+      setPendingAction(null);
+      if (res.success) {
+        onNotice?.(res.message || `已移出「${user.nickname}」`, 'success');
+      } else {
+        const msg = res.error || '踢出失败';
+        setError(msg);
+        onNotice?.(msg, 'error');
+      }
+      setKickingId(null);
+      return;
+    }
+
+    const user = pendingAction.user;
+    setTransferringId(user.id);
+    setError('');
+    const res = await transferOwner(user.id);
+    setPendingAction(null);
+    if (res.success) {
+      setTransferPickOpen(false);
+      onNotice?.(res.message || `房主已转让给「${user.nickname}」`, 'success');
+    } else {
+      const msg = res.error || '转让失败';
+      setError(msg);
+      onNotice?.(msg, 'error');
+    }
+    setTransferringId(null);
+  };
+
+  const canKick = (user: RoomUser) => (
+    isOwner
+    && user.id !== mySocketId
+    && user.id !== creatorId
+    && user.id !== ownerId
+  );
 
   return (
     <div className="relative" ref={panelRef}>
@@ -120,6 +190,7 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
               onClick={() => {
                 setOpen(false);
                 setEditing(false);
+                setTransferPickOpen(false);
               }}
               className="rounded-lg p-1 text-netease-muted hover:bg-white/10 hover:text-white"
               aria-label="关闭用户列表"
@@ -131,7 +202,8 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
           <div className="max-h-80 space-y-1.5 overflow-y-auto pr-0.5">
             {orderedUsers.map((user) => {
               const isMe = user.id === mySocketId;
-              const isOwner = user.id === ownerId;
+              const isRoomOwner = user.id === ownerId;
+              const isCreator = Boolean(creatorId && user.id === creatorId);
 
               return (
                 <div
@@ -145,7 +217,7 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
                   <div className="flex items-center gap-2">
                     <div
                       className={`relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
-                        isOwner
+                        isRoomOwner
                           ? 'bg-gradient-to-br from-amber-500 to-orange-600'
                           : isMe
                             ? 'bg-gradient-to-br from-netease-red to-pink-500'
@@ -153,7 +225,7 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
                       }`}
                     >
                       {user.nickname.charAt(0).toUpperCase()}
-                      {isOwner && <Crown className="absolute -top-1 -right-1 w-3 h-3 text-amber-300" />}
+                      {isRoomOwner && <Crown className="absolute -top-1 -right-1 w-3 h-3 text-amber-300" />}
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -162,24 +234,61 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
                           {user.nickname}
                         </p>
                         {isMe && <span className="rounded-full bg-netease-red/20 px-1.5 text-[9px] text-netease-red">我</span>}
-                        {isOwner && <span className="rounded-full bg-amber-400/15 px-1.5 text-[9px] text-amber-300">房主</span>}
+                        {isRoomOwner && <span className="rounded-full bg-amber-400/15 px-1.5 text-[9px] text-amber-300">房主</span>}
+                        {isCreator && !isRoomOwner && (
+                          <span className="rounded-full bg-white/8 px-1.5 text-[9px] text-netease-muted">创建者</span>
+                        )}
                         {user.readOnly && <span className="rounded-full bg-white/8 px-1.5 text-[9px] text-netease-muted">TV</span>}
                       </div>
                     </div>
 
-                    {isMe && !editing && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDraftName(user.nickname);
-                          setEditing(true);
-                        }}
-                        className="rounded-lg p-1.5 text-netease-muted hover:bg-white/10 hover:text-white"
-                        title="修改昵称"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <div className="flex flex-shrink-0 items-center">
+                      {isMe && !editing && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraftName(user.nickname);
+                              setEditing(true);
+                              setTransferPickOpen(false);
+                            }}
+                            className="rounded-lg p-1.5 text-netease-muted hover:bg-white/10 hover:text-white"
+                            aria-label="修改昵称"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          {isOwner && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTransferPickOpen((value) => !value);
+                                setEditing(false);
+                              }}
+                              className={`rounded-lg p-1.5 transition-colors ${
+                                transferPickOpen
+                                  ? 'bg-amber-400/15 text-amber-300'
+                                  : 'text-netease-muted hover:bg-amber-400/10 hover:text-amber-300'
+                              }`}
+                              aria-label="转让房主"
+                            >
+                              <Crown className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {canKick(user) && (
+                        <button
+                          type="button"
+                          onClick={() => handleKick(user)}
+                          disabled={kickingId === user.id}
+                          className="rounded-lg p-1.5 text-netease-muted hover:bg-red-500/10 hover:text-red-300 transition-colors disabled:opacity-40"
+                          aria-label="踢出"
+                        >
+                          <UserMinus className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {isMe && editing && (
@@ -207,6 +316,22 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
                       </button>
                     </div>
                   )}
+
+                  {isMe && isOwner && transferPickOpen && transferCandidates.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {transferCandidates.map((candidate) => (
+                        <button
+                          key={candidate.id}
+                          type="button"
+                          onClick={() => handleTransfer(candidate)}
+                          disabled={transferringId === candidate.id}
+                          className="w-full rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1.5 text-left text-xs text-white hover:bg-amber-400/10 hover:border-amber-400/20 disabled:opacity-40"
+                        >
+                          {candidate.nickname}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -214,6 +339,36 @@ export default function OnlineUsers({ users, ownerId, creatorId }: Props) {
 
           {error && <p className="mt-2 text-xs text-netease-red">{error}</p>}
         </div>
+      )}
+
+      {pendingAction?.type === 'kick' && (
+        <ConfirmModal
+          title="移出用户"
+          message={
+            <>
+              确定将「{pendingAction.user.nickname}」移出房间吗？
+              <br />
+              <span className="text-netease-muted">被移出的用户将无法再次进入本房间。</span>
+            </>
+          }
+          confirmLabel="移出"
+          confirmVariant="danger"
+          loading={kickingId === pendingAction.user.id}
+          onConfirm={() => void executePendingAction()}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {pendingAction?.type === 'transfer' && (
+        <ConfirmModal
+          title="转让房主"
+          message={`确定将房主转让给「${pendingAction.user.nickname}」吗？`}
+          confirmLabel="转让"
+          confirmVariant="primary"
+          loading={transferringId === pendingAction.user.id}
+          onConfirm={() => void executePendingAction()}
+          onCancel={() => setPendingAction(null)}
+        />
       )}
     </div>
   );

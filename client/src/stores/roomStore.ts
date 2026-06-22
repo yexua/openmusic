@@ -8,10 +8,12 @@ interface RoomStore {
   myConnectionId: string | null;
   isOwner: boolean;
   showPlayer: boolean;
+  exitReason: string | null;
   setRoom: (room: RoomState | null) => void;
   setNickname: (name: string) => void;
   setConnectionInfo: (socketId: string | null, isOwner: boolean, connectionId?: string | null) => void;
   setShowPlayer: (show: boolean) => void;
+  setExitReason: (reason: string | null) => void;
   resetSession: () => void;
 }
 
@@ -22,6 +24,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
   myConnectionId: null,
   isOwner: false,
   showPlayer: false,
+  exitReason: null,
   setRoom: (room) => set({ room }),
   setNickname: (nickname) => {
     localStorage.setItem('sjb_nickname', nickname);
@@ -29,5 +32,13 @@ export const useRoomStore = create<RoomStore>((set) => ({
   },
   setConnectionInfo: (mySocketId, isOwner, myConnectionId = null) => set({ mySocketId, myConnectionId, isOwner }),
   setShowPlayer: (showPlayer) => set({ showPlayer }),
-  resetSession: () => set({ room: null, mySocketId: null, myConnectionId: null, isOwner: false, showPlayer: false }),
+  setExitReason: (exitReason) => set({ exitReason }),
+  resetSession: () => set({
+    room: null,
+    mySocketId: null,
+    myConnectionId: null,
+    isOwner: false,
+    showPlayer: false,
+    exitReason: null,
+  }),
 }));

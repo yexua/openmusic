@@ -1,5 +1,19 @@
 import { create } from 'zustand';
 
+const VOLUME_KEY = 'openmusic:volume';
+
+function readStoredVolume(): number {
+  try {
+    const raw = localStorage.getItem(VOLUME_KEY);
+    if (raw == null) return 1;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return 1;
+    return Math.min(1, Math.max(0, v));
+  } catch {
+    return 1;
+  }
+}
+
 interface AudioStore {
   trackLoading: boolean;
   setTrackLoading: (loading: boolean) => void;
@@ -21,6 +35,12 @@ interface AudioStore {
   /** 全局平滑播放时间（进度条/歌词共用，避免多组件各自维护状态） */
   smoothPlaybackTime: number;
   setSmoothPlaybackTime: (time: number) => void;
+  /** 服务端 PlaybackState 版本号，用于触发 UI/音频同步 */
+  playbackVersion: number;
+  setPlaybackVersion: (playbackVersion: number) => void;
+  /** 本地音量 0–1，仅影响本设备 */
+  volume: number;
+  setVolume: (volume: number) => void;
 }
 
 export const useAudioStore = create<AudioStore>((set) => ({
@@ -40,4 +60,16 @@ export const useAudioStore = create<AudioStore>((set) => ({
   setRetryPlayback: (retryPlayback) => set({ retryPlayback }),
   smoothPlaybackTime: 0,
   setSmoothPlaybackTime: (smoothPlaybackTime) => set({ smoothPlaybackTime }),
+  playbackVersion: 0,
+  setPlaybackVersion: (playbackVersion) => set({ playbackVersion }),
+  volume: readStoredVolume(),
+  setVolume: (volume) => {
+    const next = Math.min(1, Math.max(0, volume));
+    set({ volume: next });
+    try {
+      localStorage.setItem(VOLUME_KEY, String(next));
+    } catch {
+      // localStorage may be unavailable.
+    }
+  },
 }));

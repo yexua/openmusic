@@ -12,6 +12,7 @@ import { getSharedAudio } from '../lib/audioElement';
 import SourceBadge from './SourceBadge';
 
 import ProgressBar from './ProgressBar';
+import VolumeControl from './VolumeControl';
 
 
 
@@ -212,6 +213,8 @@ export default function MiniPlayer({ onExpand }: Props) {
             <SkipForward className="w-4 h-4" />
           </button>
         )}
+
+        <VolumeControl compact className="flex-shrink-0" />
 
       </div>
 

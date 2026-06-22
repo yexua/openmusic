@@ -20,6 +20,7 @@ import VinylPlayer from './VinylPlayer';
 import SongInfoPanel from './SongInfoPanel';
 
 import ProgressBar from './ProgressBar';
+import VolumeControl from './VolumeControl';
 
 
 
@@ -279,7 +280,10 @@ export default function PlayerPage({ onClose }: Props) {
 
         <div className="flex items-center justify-center gap-8 sm:gap-10 2xl:gap-16">
 
-          <div className="w-10 sm:w-12 2xl:w-20" />
+          <VolumeControl
+            iconClassName="w-4 h-4 sm:w-5 sm:h-5 2xl:w-7 2xl:h-7"
+            sliderClassName="h-20 sm:h-24 2xl:h-32"
+          />
 
           {isOwner ? (
             <button

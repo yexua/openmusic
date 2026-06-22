@@ -5,6 +5,7 @@ import { interleaveSearchResults } from './merge';
 import { hasValidLrc, fetchFallbackLrc } from './lrcFallback';
 import { fetchWithTimeout } from '../http';
 import { toSecureMediaUrl } from '../../lib/secureMediaUrl';
+import { getClientId } from '../../lib/clientId';
 
 function getProvider(source: MusicSource) {
   return providers[source];
@@ -14,8 +15,10 @@ export async function searchSongs(source: MusicSource, keyword: string): Promise
   return getProvider(source).search(keyword);
 }
 
+export type SearchFilterMode = 'smart' | MusicSource;
+
 export interface SearchAllSongsOptions {
-  dedupeCrossSource?: boolean;
+  filterMode?: SearchFilterMode;
 }
 
 /** 并行搜索，多平台交替合并 */
@@ -26,22 +29,33 @@ export async function searchAllSongs(
 ): Promise<SearchResult[]> {
   if (!keyword.trim()) return [];
 
-  const sources = (sourceList ?? getAllSources()).filter((s) => s.supportsSearch);
+  const filterMode = options.filterMode ?? 'smart';
+  const allSources = (sourceList ?? getAllSources()).filter((s) => s.supportsSearch);
+
+  if (filterMode !== 'smart') {
+    const meta = allSources.find((s) => s.id === filterMode);
+    if (!meta) return [];
+    try {
+      const songs = await searchSongs(filterMode, keyword);
+      return interleaveSearchResults({ [filterMode]: songs }, { sourceOnly: filterMode });
+    } catch {
+      return [];
+    }
+  }
+
   const batches = await Promise.allSettled(
-    sources.map((meta) => searchSongs(meta.id, keyword)),
+    allSources.map((meta) => searchSongs(meta.id, keyword)),
   );
 
   const groups: Partial<Record<MusicSource, SearchResult[]>> = {};
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
     if (batch.status === 'fulfilled') {
-      groups[sources[i].id] = batch.value;
+      groups[allSources[i].id] = batch.value;
     }
   }
 
-  return interleaveSearchResults(groups, {
-    dedupeCrossSource: options.dedupeCrossSource,
-  });
+  return interleaveSearchResults(groups, { dedupeCrossSource: true });
 }
 
 export { interleaveSearchResults, mergeSearchResults, songKey, artistGroupKey, trackTitleKey } from './merge';
@@ -150,7 +164,9 @@ export async function resolveDurationFromLyrics(
 }
 
 export async function createRoom(name?: string, password?: string): Promise<{ id: string; name: string }> {
-  const payload: { name?: string; password?: string } = {};
+  const payload: { name?: string; password?: string; creatorId?: string } = {
+    creatorId: getClientId(),
+  };
   if (name?.trim()) payload.name = name.trim();
   if (password?.trim()) payload.password = password.trim();
   const res = await fetchWithTimeout('/api/rooms', {

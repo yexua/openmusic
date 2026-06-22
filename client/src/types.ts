@@ -74,6 +74,17 @@ export interface RoomState {
   randomLoading?: boolean;
 }
 
+/** CRDT 播放状态（服务端唯一时间源） */
+export interface PlaybackState {
+  roomId: string;
+  version: number;
+  trackId: string;
+  status: 'playing' | 'paused';
+  startedAt: number;
+  currentTime: number;
+  updatedAt: number;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;

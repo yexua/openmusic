@@ -59,6 +59,8 @@ function dedupeCrossSource(songs: SearchResult[]): SearchResult[] {
 export interface InterleaveOptions {
   /** 跨平台按歌名+歌手去重，优先级：网易 > QQ > 酷狗 */
   dedupeCrossSource?: boolean;
+  /** 仅保留指定平台结果 */
+  sourceOnly?: MusicSource;
 }
 
 /**
@@ -68,6 +70,10 @@ export function interleaveSearchResults(
   groups: Partial<Record<MusicSource, SearchResult[]>>,
   options: InterleaveOptions = {},
 ): SearchResult[] {
+  if (options.sourceOnly) {
+    return dedupExact(groups[options.sourceOnly] ?? []);
+  }
+
   const netease = dedupExact(groups.netease ?? []);
   const tencent = dedupExact(groups.tencent ?? []);
   const kugou = dedupExact(groups.kugou ?? []);
