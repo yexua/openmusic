@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface Props {
@@ -25,7 +26,7 @@ export default function ConfirmModal({
     ? 'bg-netease-red hover:bg-red-500'
     : 'bg-amber-500 hover:bg-amber-400 text-black';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <button
         type="button"
@@ -65,6 +66,7 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
