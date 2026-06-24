@@ -397,7 +397,7 @@ export default function ChatPanel() {
           <button
             type="button"
             onClick={() => setShowMutePicker(true)}
-            className={`rounded-lg p-1.5 transition-colors ${room.muteAll || mutedSet.size > 0 ? 'text-amber-400 hover:bg-amber-400/10' : 'text-netease-muted hover:bg-white/10 hover:text-white'}`}
+            className="rounded-lg p-1.5 text-netease-muted transition-colors hover:bg-white/10 hover:text-white"
             title="禁言管理"
           >
             <MicOff className="h-4 w-4" />
