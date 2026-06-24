@@ -1,3 +1,12 @@
+import {
+  configureQFaceImageLoader,
+  isQFaceImageDecoded,
+  QFaceLoadPriority,
+  requestQFaceImage,
+  requestQFaceImages,
+  type QFaceImageState,
+} from './qfaceImageLoader';
+
 const QFACE_BASE = `${import.meta.env.BASE_URL}qface/`;
 const MANIFEST_URL = `${QFACE_BASE}manifest.json`;
 
@@ -31,7 +40,6 @@ const POPULAR_LABELS: Record<string, string> = {
 
 const QQ_FACE_TOKEN_RE = /\[qqface:([^\]]+)\]/g;
 
-const preloadedImageUrls = new Set<string>();
 const faceSubscribers = new Set<(faces: QFaceItem[]) => void>();
 
 let fullFacesCache: QFaceItem[] | null = null;
@@ -40,6 +48,8 @@ let pendingFaces: Promise<QFaceItem[]> | null = null;
 function faceUrl(id: string): string {
   return `${QFACE_BASE}${encodeURIComponent(id)}.apng`;
 }
+
+configureQFaceImageLoader(faceUrl);
 
 function buildPopularFaces(): QFaceItem[] {
   return POPULAR_FACE_IDS.map((id) => ({
@@ -66,6 +76,10 @@ function notifyFaceSubscribers(): void {
   faceSubscribers.forEach((callback) => callback(faces));
 }
 
+function warmupManifestFaces(): void {
+  requestQFaceImages(POPULAR_FACE_IDS, QFaceLoadPriority.MANIFEST);
+}
+
 async function fetchLocalManifest(): Promise<QFaceItem[]> {
   const res = await fetch(MANIFEST_URL);
   if (!res.ok) throw new Error('本地表情 manifest 不存在');
@@ -79,7 +93,67 @@ async function loadLocalFaces(): Promise<QFaceItem[]> {
   const faces = await fetchLocalManifest();
   fullFacesCache = faces;
   notifyFaceSubscribers();
+  warmupManifestFaces();
   return faces;
+}
+
+export { QFaceLoadPriority, type QFaceImageState };
+export {
+  getQFaceImageState,
+  isQFaceImageDecoded,
+  markQFaceImageRendered,
+  requestQFaceImage,
+  requestQFaceImages,
+  subscribeQFaceImageState,
+} from './qfaceImageLoader';
+
+export function getQQFaceUrl(id: string): string {
+  return faceUrl(id);
+}
+
+export function getQQFaceItem(id: string): QFaceItem {
+  const cached = fullFacesCache?.find((face) => face.id === id);
+  if (cached) return cached;
+  return {
+    id,
+    text: POPULAR_LABELS[id] || `/表情${id}`,
+    url: faceUrl(id),
+  };
+}
+
+/** @deprecated 使用 isQFaceImageDecoded */
+export function isQQFaceImageLoaded(id: string): boolean {
+  return isQFaceImageDecoded(id);
+}
+
+/** @deprecated 使用 requestQFaceImage + QFaceLoadPriority */
+export function ensureQQFaceImageLoaded(id: string, priority?: boolean): Promise<void> {
+  return requestQFaceImage(
+    id,
+    priority ? QFaceLoadPriority.MESSAGE : QFaceLoadPriority.PANEL,
+  );
+}
+
+/** @deprecated 使用 requestQFaceImages + QFaceLoadPriority */
+export function preloadQQFaceByIds(ids: string[], priority = false): void {
+  requestQFaceImages(
+    ids,
+    priority ? QFaceLoadPriority.MESSAGE : QFaceLoadPriority.PANEL,
+  );
+}
+
+export function extractQQFaceIds(text: string): string[] {
+  const ids: string[] = [];
+  for (const match of text.matchAll(QQ_FACE_TOKEN_RE)) {
+    ids.push(match[1]);
+  }
+  return ids;
+}
+
+export function extractQQFaceIdsFromTexts(texts: string[]): string[] {
+  const ids = new Set<string>();
+  texts.forEach((text) => extractQQFaceIds(text).forEach((id) => ids.add(id)));
+  return [...ids];
 }
 
 export function qqFaceToken(id: string): string {
@@ -98,19 +172,6 @@ export function subscribeQQFaces(callback: (faces: QFaceItem[]) => void): () => 
   faceSubscribers.add(callback);
   callback(getDisplayFaces());
   return () => faceSubscribers.delete(callback);
-}
-
-export function preloadQQFaceImages(faces: QFaceItem[]): void {
-  if (typeof Image === 'undefined') return;
-
-  faces.forEach((face) => {
-    if (preloadedImageUrls.has(face.url)) return;
-    preloadedImageUrls.add(face.url);
-
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = face.url;
-  });
 }
 
 export function parseQQFaceTokens(text: string): Array<string | { type: 'qqface'; id: string }> {
@@ -138,7 +199,10 @@ export async function loadQQFaces(): Promise<QFaceItem[]> {
   if (pendingFaces) return pendingFaces;
 
   pendingFaces = loadLocalFaces()
-    .catch(() => getDisplayFaces())
+    .catch(() => {
+      warmupManifestFaces();
+      return getDisplayFaces();
+    })
     .finally(() => {
       pendingFaces = null;
     });
@@ -148,9 +212,5 @@ export async function loadQQFaces(): Promise<QFaceItem[]> {
 
 export function ensureQQFacesLoaded(): void {
   if (fullFacesCache) return;
-  void loadQQFaces();
-}
-
-export function initQQFaces(): void {
   void loadQQFaces();
 }

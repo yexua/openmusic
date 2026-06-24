@@ -4,12 +4,15 @@ import { useRoomStore } from '../stores/roomStore';
 import { getClientId } from '../lib/clientId';
 import { useSocket } from '../hooks/useSocket';
 import type { ChatMessage, ChatReplyRef, RoomUser } from '../types';
+import QFaceImage from './QFaceImage';
 import {
   ensureQQFacesLoaded,
   getInitialQQFaces,
   hasFullQQFaces,
   parseQQFaceTokens,
+  QFaceLoadPriority,
   qqFaceToken,
+  requestQFaceImage,
   subscribeQQFaces,
   type QFaceItem,
 } from '../lib/qface';
@@ -35,15 +38,17 @@ export default function ChatPanel() {
   const [qqFaces, setQQFaces] = useState<QFaceItem[]>(() => getInitialQQFaces());
   const [loadingFaces, setLoadingFaces] = useState(() => !hasFullQQFaces());
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [chatScrollRoot, setChatScrollRoot] = useState<HTMLDivElement | null>(null);
+  const [emojiGridRoot, setEmojiGridRoot] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
   const emojiPanelRef = useRef<HTMLDivElement>(null);
-  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+  const bindEmojiGridRef = (el: HTMLDivElement | null) => {
+    setEmojiGridRoot(el);
+  };  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const composingRef = useRef(false);
   const roomIdRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(true);
 
-  const faceMap = useMemo(() => new Map(qqFaces.map((face) => [face.id, face])), [qqFaces]);
   const userMap = useMemo(() => new Map((room?.users || []).map((user) => [user.id, user])), [room?.users]);
   const mentionUsers = useMemo(() => {
     const myUserId = mySocketId || getClientId();
@@ -63,13 +68,13 @@ export default function ChatPanel() {
   }, [room?.id]);
 
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = chatScrollRoot;
     if (!el) return;
     const scrollToBottom = (behavior: ScrollBehavior) => requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior, block: 'end' }));
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (stickToBottomRef.current) scrollToBottom('instant');
     else if (distanceToBottom < 120) scrollToBottom('smooth');
-  }, [room?.messages.length, room?.id]);
+  }, [chatScrollRoot, room?.messages.length, room?.id]);
 
   useEffect(() => {
     if (!room?.messages.length || typeof Notification === 'undefined') return;
@@ -103,14 +108,14 @@ export default function ChatPanel() {
   }, [mySocketId, nickname, room?.id, room?.messages]);
 
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = chatScrollRoot;
     if (!el) return;
     const onScroll = () => {
       stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [room?.id]);
+  }, [chatScrollRoot, room?.id]);
 
   useEffect(() => {
     if (!showEmoji) return;
@@ -243,30 +248,32 @@ export default function ChatPanel() {
       setShowMentionPicker(false);
       return;
     }
-    const img = document.createElement('img');
-    img.src = face.url;
-    img.alt = face.text;
-    img.title = face.text;
-    img.dataset.qqFaceId = face.id;
-    img.contentEditable = 'false';
-    img.className = 'mx-0.5 inline-block h-5 w-auto max-w-6 object-contain align-[-0.2em]';
-    const selection = window.getSelection();
-    let range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const anchorNode = selection?.anchorNode;
-    if (!range || !anchorNode || !editor.contains(anchorNode)) {
-      range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-    }
-    range.deleteContents();
-    range.insertNode(img);
-    range.setStartAfter(img);
-    range.collapse(true);
-    requestAnimationFrame(() => {
-      editor.focus();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      syncEditorState();
+    void requestQFaceImage(face.id, QFaceLoadPriority.MESSAGE).then(() => {
+      const img = document.createElement('img');
+      img.src = face.url;
+      img.alt = face.text;
+      img.title = face.text;
+      img.dataset.qqFaceId = face.id;
+      img.contentEditable = 'false';
+      img.className = 'mx-0.5 inline-block h-5 w-auto max-w-6 object-contain align-[-0.2em]';
+      const selection = window.getSelection();
+      let range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      const anchorNode = selection?.anchorNode;
+      if (!range || !anchorNode || !editor.contains(anchorNode)) {
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+      range.deleteContents();
+      range.insertNode(img);
+      range.setStartAfter(img);
+      range.collapse(true);
+      requestAnimationFrame(() => {
+        editor.focus();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        syncEditorState();
+      });
     });
   };
 
@@ -278,9 +285,17 @@ export default function ChatPanel() {
           ? <span key={`mention-${index}-${pieceIndex}`} className="text-sky-300">{piece}</span>
           : <span key={`text-${index}-${pieceIndex}`}>{piece}</span>);
       }
-      const face = faceMap.get(part.id);
-      if (!face) return <span key={`face-${index}`} className="text-netease-muted">[QQ表情]</span>;
-      return <img key={`face-${part.id}-${index}`} src={face.url} alt={face.text} title={face.text} className="mx-0.5 inline-block h-7 w-auto max-w-8 object-contain align-middle" loading="lazy" />;
+      return (
+        <QFaceImage
+          key={`face-${part.id}-${index}`}
+          id={part.id}
+          priority={QFaceLoadPriority.MESSAGE}
+          nearPriority={QFaceLoadPriority.NEAR}
+          observeRoot={chatScrollRoot}
+          className="mx-0.5 inline-block h-7 w-auto max-w-8 object-contain align-middle"
+          placeholderClassName="mx-0.5 inline-block h-7 w-6 align-middle"
+        />
+      );
     });
   };
 
@@ -291,7 +306,7 @@ export default function ChatPanel() {
         <h3 className="text-sm font-medium">聊天室</h3>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
+      <div ref={setChatScrollRoot} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
         {room.messages.length === 0 ? (
           <p className="py-8 text-center text-xs text-netease-muted">暂无消息，打个招呼吧</p>
         ) : room.messages.map((msg) => {
@@ -337,8 +352,27 @@ export default function ChatPanel() {
           {showEmoji && (
             <div className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-2xl border border-netease-border/70 bg-netease-dark/95 p-2 shadow-2xl backdrop-blur">
               <div className="mb-1.5 flex items-center justify-between px-1"><span className="text-[11px] text-netease-muted">QQNT 表情</span><span className="text-[10px] text-netease-muted/60">{loadingFaces ? '正在补全...' : '点击插入'}</span></div>
-              <div className="grid max-h-64 grid-cols-8 gap-1 overflow-y-auto pr-0.5">
-                {qqFaces.map((face) => <button key={face.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertEmoji(face)} className="flex h-8 items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/15" title={face.text}><img src={face.url} alt="" className="h-6 w-auto max-w-7 object-contain" loading="lazy" /></button>)}
+              <div ref={bindEmojiGridRef} className="grid max-h-64 grid-cols-8 gap-1 overflow-y-auto pr-0.5">
+                {qqFaces.map((face) => (
+                  <button
+                    key={face.id}
+                    type="button"
+                    data-face-id={face.id}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertEmoji(face)}
+                    className="flex h-8 items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/15"
+                    title={face.text}
+                  >
+                    <QFaceImage
+                      id={face.id}
+                      priority={QFaceLoadPriority.PANEL}
+                      nearPriority={QFaceLoadPriority.NEAR}
+                      observeRoot={emojiGridRoot}
+                      className="h-6 w-auto max-w-7 object-contain"
+                      placeholderClassName="h-6 w-6"
+                    />
+                  </button>
+                ))}
               </div>
             </div>
           )}

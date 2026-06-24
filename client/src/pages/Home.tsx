@@ -426,7 +426,7 @@ export default function Home() {
               三平台曲库
             </span>
           </div>
-          <p className="flex flex-wrap items-center justify-center gap-1 text-xs text-white/35">
+          {/* <p className="flex flex-wrap items-center justify-center gap-1 text-xs text-white/35">
             本网站由
             <a
               href="https://www.upyun.com/?utm_source=lianmeng&utm_medium=referral"
@@ -438,7 +438,7 @@ export default function Home() {
               <img src="/又拍云_logo5.png" alt="又拍云" className="h-6 w-auto" />
             </a>
             提供 CDN 加速 / 云存储服务
-          </p>
+          </p> */}
         </div>
       </footer>
 
