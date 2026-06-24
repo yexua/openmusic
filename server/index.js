@@ -19,6 +19,9 @@ import {
   addUser,
   removeUser,
   renameUser,
+  renameRoom,
+  setRoomLock,
+  setChatMute,
   addToQueue,
   removeFromQueue,
   skipSong,
@@ -784,7 +787,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const auth = verifyRoomPassword(id, password);
+    const auth = verifyRoomPassword(id, password, { clientId });
     if (!auth.ok) {
       callback?.({ success: false, error: auth.error, needsPassword: auth.needsPassword });
       return;
@@ -868,6 +871,66 @@ io.on('connection', (socket) => {
 
     const userId = getSocketUserId(socket);
     const result = renameUser(roomId, userId, nickname);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('room_update', result.room);
+    callback?.({ success: true, room: result.room });
+  });
+
+  socket.on('rename_room', ({ name }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'rename_room', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = renameRoom(roomId, getSocketUserId(socket), name, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('room_update', result.room);
+    callback?.({ success: true, room: result.room });
+  });
+
+  socket.on('set_room_lock', ({ locked, password }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'set_room_lock', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = setRoomLock(roomId, getSocketUserId(socket), { locked, password }, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('room_update', result.room);
+    callback?.({ success: true, room: result.room });
+  });
+
+  socket.on('set_chat_mute', ({ muteAll, userId, muted }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'set_chat_mute', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = setChatMute(roomId, getSocketUserId(socket), { muteAll, userId, muted }, socket.id);
     if (result.error) {
       callback?.({ success: false, error: result.error });
       return;

@@ -72,6 +72,11 @@ function RoomCard({
                 <Lock className="w-3.5 h-3.5" />
               </span>
             )}
+            {room.isLocked && !room.hasPassword && (
+              <span className="flex-shrink-0 p-1 rounded-md bg-red-500/10 text-red-400/90" title="已上锁">
+                <Lock className="w-3.5 h-3.5" />
+              </span>
+            )}
           </div>
           <span className="flex-shrink-0 flex items-center gap-1.5 text-xs text-white/50 bg-white/5 px-2.5 py-1 rounded-full">
             <Users className="w-3.5 h-3.5" />
@@ -239,6 +244,10 @@ export default function Home() {
         setError('房间不存在，请检查房间号');
         return;
       }
+      if (result.isLocked && !result.hasPassword) {
+        setError('房间已上锁，禁止进入');
+        return;
+      }
       if (result.hasPassword && !joinPassword.trim()) {
         setError('该房间需要密码');
         return;
@@ -255,6 +264,10 @@ export default function Home() {
   const handleRoomCardClick = (room: RoomSummary) => {
     ensureNickname();
     setError('');
+    if (room.isLocked && !room.hasPassword) {
+      setError('房间已上锁，禁止进入');
+      return;
+    }
     if (room.hasPassword) {
       setPasswordTarget(room);
       setCardPassword('');

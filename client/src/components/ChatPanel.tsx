@@ -1,9 +1,11 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { MessageCircle, Reply, Send, Smile, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { MessageCircle, MicOff, Reply, Send, Smile, X } from 'lucide-react';
 import { useRoomStore } from '../stores/roomStore';
 import { getClientId } from '../lib/clientId';
 import { useSocket } from '../hooks/useSocket';
 import type { ChatMessage, ChatReplyRef, RoomUser } from '../types';
+import { isChatMutedForUser } from '../lib/chatMute';
 import QFaceImage from './QFaceImage';
 import {
   ensureQQFacesLoaded,
@@ -27,12 +29,15 @@ export default function ChatPanel() {
   const room = useRoomStore((s) => s.room);
   const nickname = useRoomStore((s) => s.nickname);
   const mySocketId = useRoomStore((s) => s.mySocketId);
-  const { sendChat } = useSocket();
+  const isOwner = useRoomStore((s) => s.isOwner);
+  const { sendChat, setChatMute } = useSocket();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<ChatReplyRef | null>(null);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showMutePicker, setShowMutePicker] = useState(false);
+  const [muteSaving, setMuteSaving] = useState(false);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [qqFaces, setQQFaces] = useState<QFaceItem[]>(() => getInitialQQFaces());
@@ -48,6 +53,34 @@ export default function ChatPanel() {
   const composingRef = useRef(false);
   const roomIdRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(true);
+
+  const mutedSet = useMemo(() => new Set(room?.mutedUserIds || []), [room?.mutedUserIds]);
+  const myUserId = mySocketId || getClientId();
+  const chatMuted = isChatMutedForUser(room, myUserId);
+
+  const orderedMuteUsers = useMemo(() => {
+    if (!room) return [];
+    return room.users
+      .filter((user) => user.id !== myUserId)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
+  }, [room, myUserId]);
+
+  const toggleMuteAll = async () => {
+    if (muteSaving || !room) return;
+    setMuteSaving(true);
+    const res = await setChatMute({ muteAll: !room.muteAll });
+    setMuteSaving(false);
+    if (!res.success) setError(res.error || '操作失败');
+  };
+
+  const toggleUserMute = async (user: RoomUser) => {
+    if (muteSaving || user.id === myUserId) return;
+    setMuteSaving(true);
+    const muted = !mutedSet.has(user.id);
+    const res = await setChatMute({ userId: user.id, muted });
+    setMuteSaving(false);
+    if (!res.success) setError(res.error || '操作失败');
+  };
 
   const userMap = useMemo(() => new Map((room?.users || []).map((user) => [user.id, user])), [room?.users]);
   const mentionUsers = useMemo(() => {
@@ -301,9 +334,24 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-netease-border/50 bg-netease-card/30">
-      <div className="flex flex-shrink-0 items-center gap-2 border-b border-netease-border/50 px-4 py-2">
-        <MessageCircle className="h-4 w-4 text-netease-muted" />
-        <h3 className="text-sm font-medium">聊天室</h3>
+      <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-netease-border/50 px-4 py-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageCircle className="h-4 w-4 text-netease-muted" />
+          <h3 className="text-sm font-medium">聊天室</h3>
+          {room.muteAll && (
+            <span className="text-[10px] text-amber-400/90 bg-amber-400/10 px-1.5 py-0.5 rounded-full">全体禁言</span>
+          )}
+        </div>
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => setShowMutePicker(true)}
+            className={`rounded-lg p-1.5 transition-colors ${room.muteAll || mutedSet.size > 0 ? 'text-amber-400 hover:bg-amber-400/10' : 'text-netease-muted hover:bg-white/10 hover:text-white'}`}
+            title="禁言管理"
+          >
+            <MicOff className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div ref={setChatScrollRoot} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
@@ -341,6 +389,11 @@ export default function ChatPanel() {
       </div>
 
       <div className="flex-shrink-0 border-t border-netease-border/50 p-2">
+        {chatMuted && (
+          <p className="mb-1.5 text-center text-xs text-amber-400/90">
+            {room.muteAll ? '房主已开启全体禁言' : '你已被禁言，无法发送消息'}
+          </p>
+        )}
         {replyTo && (
           <div className="mb-1.5 flex items-center justify-between rounded-xl bg-white/5 px-2 py-1 text-xs text-netease-muted">
             <span className="min-w-0 truncate">回复 {replyTo.nickname}：{compactReplyText(replyTo.text)}</span>
@@ -376,7 +429,7 @@ export default function ChatPanel() {
               </div>
             </div>
           )}
-          <button type="button" onClick={() => setShowEmoji((value) => !value)} className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-netease-border/50 transition-colors ${showEmoji ? 'border-netease-red/30 bg-netease-red/15 text-netease-red' : 'bg-netease-dark text-netease-muted hover:bg-white/5 hover:text-white'}`} title="QQ 表情"><Smile className="h-4 w-4" /></button>
+          <button type="button" onClick={() => setShowEmoji((value) => !value)} disabled={chatMuted} className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-netease-border/50 transition-colors disabled:opacity-40 ${showEmoji ? 'border-netease-red/30 bg-netease-red/15 text-netease-red' : 'bg-netease-dark text-netease-muted hover:bg-white/5 hover:text-white'}`} title="QQ 表情"><Smile className="h-4 w-4" /></button>
           <div className="relative min-w-0 flex-1">
             {showMentionPicker && (
               <div className="absolute bottom-full left-0 z-20 mb-2 w-56 overflow-hidden rounded-2xl border border-netease-border/70 bg-netease-dark/95 p-1.5 shadow-2xl backdrop-blur">
@@ -400,7 +453,7 @@ export default function ChatPanel() {
               ref={inputRef}
               role="textbox"
               aria-label="聊天输入框"
-              contentEditable
+              contentEditable={!chatMuted}
               suppressContentEditableWarning
               onBeforeInput={(event) => {
                 const nativeEvent = event.nativeEvent as InputEvent;
@@ -448,12 +501,53 @@ export default function ChatPanel() {
                 event.preventDefault();
                 void handleSend();
               }}
-              className="h-9 overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-netease-border/50 bg-netease-dark px-3 py-1.5 text-sm leading-6 text-white focus:border-netease-red/40 focus:outline-none"
+              className={`h-9 overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-netease-border/50 bg-netease-dark px-3 py-1.5 text-sm leading-6 text-white focus:border-netease-red/40 focus:outline-none ${chatMuted ? 'opacity-50 pointer-events-none' : ''}`}
             />
           </div>
-          <button onClick={handleSend} disabled={sending || !text.trim()} className="rounded-xl bg-netease-red px-3 py-1.5 text-white transition-colors hover:bg-red-500 disabled:opacity-40"><Send className="h-4 w-4" /></button>
+          <button onClick={handleSend} disabled={sending || !text.trim() || chatMuted} className="rounded-xl bg-netease-red px-3 py-1.5 text-white transition-colors hover:bg-red-500 disabled:opacity-40"><Send className="h-4 w-4" /></button>
         </div>
       </div>
+
+      {showMutePicker && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowMutePicker(false)} aria-label="关闭" />
+          <div className="relative w-full max-w-sm glass rounded-2xl border border-white/10 shadow-2xl p-4 animate-fade-in">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h2 className="text-base font-semibold text-white">禁言管理</h2>
+              <button type="button" onClick={() => setShowMutePicker(false)} className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="max-h-72 overflow-y-auto space-y-1 pr-0.5">
+              <button
+                type="button"
+                disabled={muteSaving}
+                onClick={() => void toggleMuteAll()}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${room.muteAll ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
+              >
+                <span className="font-medium">全体禁言</span>
+                <span className="text-xs text-netease-muted">{room.muteAll ? '点击解禁' : '点击禁言'}</span>
+              </button>
+              {orderedMuteUsers.map((user) => {
+                const isMuted = mutedSet.has(user.id);
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    disabled={muteSaving}
+                    onClick={() => void toggleUserMute(user)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-40 ${isMuted ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
+                  >
+                    <span className="min-w-0 truncate">{user.nickname}</span>
+                    <span className="ml-2 flex-shrink-0 text-xs text-netease-muted">
+                      {isMuted ? '点击解禁' : '点击禁言'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

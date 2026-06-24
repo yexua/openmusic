@@ -80,6 +80,11 @@ export interface RoomState {
   id: string;
   name: string;
   hasPassword?: boolean;
+  isLocked?: boolean;
+  muteAll?: boolean;
+  mutedUserIds?: string[];
+  /** 仅加入时由服务端按当前用户计算；广播更新请用 isChatMutedForUser */
+  chatMuted?: boolean;
   ownerId: string | null;
   /** 房间创建者（持久身份，重新进入时恢复房主） */
   creatorId?: string | null;
@@ -118,6 +123,7 @@ export interface RoomSummary {
   name: string;
   userCount: number;
   hasPassword: boolean;
+  isLocked?: boolean;
   isPlaying: boolean;
   currentSong: { name: string; artist: string } | null;
   queueLength: number;
@@ -127,6 +133,7 @@ export interface RoomSummary {
 export interface RoomCheckResult {
   exists: boolean;
   hasPassword: boolean;
+  isLocked?: boolean;
   name?: string;
 }
 

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
-import { Search, Loader2, Copy, Check, Crown, Tv, LogOut, X, Heart, Trash2, Plus, Download, ListMusic, Upload, History, ListPlus } from 'lucide-react';
+import { Search, Loader2, Copy, Check, Crown, Tv, LogOut, X, Heart, Trash2, Plus, Download, ListMusic, Upload, History, ListPlus, Pencil, Lock, LockOpen } from 'lucide-react';
 
 import { searchAllSongs, getAvailableSources, type SearchFilterMode } from '../api/music';
 import { importPlaylist, searchNeteasePlaylists, type NeteasePlaylistSearchItem, type PlaylistPlatform } from '../api/music/playlist';
@@ -137,7 +138,7 @@ export default function Room() {
 
   const { room, showPlayer, setShowPlayer, isOwner, exitReason } = useRoomStore();
 
-  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites } = useSocket();
+  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock } = useSocket();
   const { applyFavorites } = useFavorites();
 
 
@@ -177,12 +178,70 @@ export default function Room() {
   const [removingFavoriteId, setRemovingFavoriteId] = useState<string | null>(null);
   const [importingFavorites, setImportingFavorites] = useState(false);
   const [favoritesImportProgress, setFavoritesImportProgress] = useState('');
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [lockOpen, setLockOpen] = useState(false);
+  const [lockPassword, setLockPassword] = useState('');
+  const [lockSaving, setLockSaving] = useState(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
   }, []);
 
   const closeToast = useCallback(() => setToast(null), []);
+
+  const openRenameModal = useCallback(() => {
+    if (!room) return;
+    setRenameDraft(room.name);
+    setRenameOpen(true);
+  }, [room]);
+
+  const handleRenameRoom = useCallback(async () => {
+    const nextName = renameDraft.trim();
+    if (!nextName || renameSaving) return;
+    setRenameSaving(true);
+    const res = await renameRoomName(nextName);
+    setRenameSaving(false);
+    if (res.success) {
+      setRenameOpen(false);
+      showToast('房间名称已更新', 'success');
+    } else {
+      showToast(res.error || '改名失败', 'error');
+    }
+  }, [renameDraft, renameSaving, renameRoomName, showToast]);
+
+  const openLockModal = useCallback(() => {
+    setLockPassword('');
+    setLockOpen(true);
+  }, []);
+
+  const handleUnlockRoom = useCallback(async () => {
+    if (lockSaving) return;
+    setLockSaving(true);
+    const res = await setRoomLock(false);
+    setLockSaving(false);
+    if (res.success) {
+      setLockOpen(false);
+      showToast('房间已解锁', 'success');
+    } else {
+      showToast(res.error || '解锁失败', 'error');
+    }
+  }, [lockSaving, setRoomLock, showToast]);
+
+  const handleLockRoom = useCallback(async () => {
+    if (lockSaving) return;
+    setLockSaving(true);
+    const res = await setRoomLock(true, lockPassword.trim() || undefined);
+    setLockSaving(false);
+    if (res.success) {
+      setLockOpen(false);
+      setLockPassword('');
+      showToast(lockPassword.trim() ? '房间已上锁（需密码进入）' : '房间已上锁（禁止进入）', 'success');
+    } else {
+      showToast(res.error || '上锁失败', 'error');
+    }
+  }, [lockPassword, lockSaving, setRoomLock, showToast]);
 
   const filteredFavorites = favorites.filter((song) => {
     const keyword = favoriteQuery.trim().toLowerCase();
@@ -744,6 +803,33 @@ export default function Room() {
                 </h1>
 
                 {isOwner && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={openRenameModal}
+                      className="flex-shrink-0 rounded-lg p-1 text-netease-muted hover:bg-white/10 hover:text-white transition-colors"
+                      title="修改房间名"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openLockModal}
+                      className={`flex-shrink-0 rounded-lg p-1 transition-colors hover:bg-white/10 ${room.isLocked ? 'text-amber-400' : 'text-netease-muted hover:text-white'}`}
+                      title={room.isLocked ? '房间已上锁' : '房间上锁'}
+                    >
+                      {room.isLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
+                    </button>
+                  </>
+                )}
+
+                {!isOwner && (room.isLocked || room.hasPassword) && (
+                  <span className="flex-shrink-0 text-amber-400/90" title={room.hasPassword ? '密码房' : '已上锁'}>
+                    <Lock className="w-3.5 h-3.5" />
+                  </span>
+                )}
+
+                {isOwner && (
 
                   <span className="flex items-center gap-0.5 text-[10px] text-amber-400/90 bg-amber-400/10 px-1.5 py-0.5 rounded-full flex-shrink-0">
 
@@ -1219,6 +1305,88 @@ export default function Room() {
 
         <PlayerPage onClose={() => setShowPlayer(false)} />
 
+      )}
+
+      {renameOpen && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setRenameOpen(false)} aria-label="关闭" />
+          <div className="relative w-full max-w-sm glass rounded-2xl border border-white/10 shadow-2xl p-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">修改房间名</h2>
+              <button type="button" onClick={() => setRenameOpen(false)} className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10"><X className="w-5 h-5" /></button>
+            </div>
+            <input
+              type="text"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              maxLength={30}
+              placeholder="房间名称"
+              className="w-full bg-netease-dark border border-netease-border rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 mb-5"
+              onKeyDown={(e) => e.key === 'Enter' && void handleRenameRoom()}
+            />
+            <button
+              type="button"
+              onClick={() => void handleRenameRoom()}
+              disabled={renameSaving || !renameDraft.trim()}
+              className="w-full flex items-center justify-center gap-2 bg-netease-red hover:bg-red-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+            >
+              {renameSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+              保存
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {lockOpen && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setLockOpen(false)} aria-label="关闭" />
+          <div className="relative w-full max-w-sm glass rounded-2xl border border-white/10 shadow-2xl p-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">房间上锁</h2>
+              <button type="button" onClick={() => setLockOpen(false)} className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10"><X className="w-5 h-5" /></button>
+            </div>
+            {room.isLocked ? (
+              <div className="space-y-4">
+                <p className="text-sm text-white/70">
+                  房间当前已上锁{room.hasPassword ? '（需密码进入）' : '（禁止他人进入）'}。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleUnlockRoom()}
+                  disabled={lockSaving}
+                  className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-medium py-3 rounded-xl transition-colors"
+                >
+                  {lockSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <LockOpen className="w-5 h-5" />}
+                  解锁房间
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-white/70">上锁后其他人无法进入。可选择设置密码，留空则完全禁止进入。</p>
+                <label className="block text-xs text-white/50 mb-1.5">进入密码（可选）</label>
+                <input
+                  type="password"
+                  value={lockPassword}
+                  onChange={(e) => setLockPassword(e.target.value)}
+                  maxLength={32}
+                  placeholder="留空则禁止任何人进入"
+                  className="w-full bg-netease-dark border border-netease-border rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleLockRoom()}
+                  disabled={lockSaving}
+                  className="w-full flex items-center justify-center gap-2 bg-netease-red hover:bg-red-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+                >
+                  {lockSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Lock className="w-5 h-5" />}
+                  确认上锁
+                </button>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
       )}
 
     </div>

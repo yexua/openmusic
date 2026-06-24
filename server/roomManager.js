@@ -42,10 +42,19 @@ function verifyPassword(password, stored) {
   return timingSafeEqual(expected, actual);
 }
 
-export function verifyRoomPassword(roomId, password) {
+export function verifyRoomPassword(roomId, password, options = {}) {
   const room = rooms.get(roomId?.toUpperCase());
   if (!room) return { ok: false, error: '房间不存在' };
-  if (!verifyPassword(password, room.passwordHash)) {
+
+  const clientId = sanitizeCreatorId(options.clientId);
+  if (room.isLocked && !room.passwordHash) {
+    if (clientId && room.creatorId === clientId) {
+      return { ok: true };
+    }
+    return { ok: false, error: '房间已上锁，禁止进入' };
+  }
+
+  if (room.passwordHash && !verifyPassword(password, room.passwordHash)) {
     return { ok: false, error: '密码错误', needsPassword: true };
   }
   return { ok: true };
@@ -78,6 +87,9 @@ function snapshotRoomForStorage(room) {
     id: room.id,
     name: room.name,
     passwordHash: room.passwordHash,
+    isLocked: Boolean(room.isLocked),
+    muteAll: Boolean(room.muteAll),
+    mutedUserIds: Array.from(room.mutedUserIds || []),
     creatorId: room.creatorId ?? null,
     bannedUserIds: Array.from(room.bannedUserIds || []),
     queue: room.queue,
@@ -114,6 +126,9 @@ function restoreRoomFromStorage(data) {
   room.nextRandom = data.nextRandom ?? null;
   room.creatorId = data.creatorId ?? null;
   room.bannedUserIds = new Set(data.bannedUserIds || []);
+  room.isLocked = Boolean(data.isLocked);
+  room.muteAll = Boolean(data.muteAll);
+  room.mutedUserIds = new Set(data.mutedUserIds || []);
   room.createdAt = data.createdAt ?? Date.now();
 
   if (room.isPlaying && room.current) {
@@ -223,6 +238,9 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     id: roomId,
     name: normalizeRoomName(name, roomId),
     passwordHash,
+    isLocked: false,
+    muteAll: false,
+    mutedUserIds: new Set(),
     creatorId: null,
     ownerId: null,
     bannedUserIds: new Set(),
@@ -405,6 +423,7 @@ export function getRoomPublic(roomId) {
     id: room.id,
     name: room.name,
     hasPassword: Boolean(room.passwordHash),
+    isLocked: Boolean(room.isLocked),
     userCount: room.users.size,
     isPlaying: room.isPlaying,
     currentSong: room.current
@@ -510,6 +529,68 @@ function reassignOrphanQueueOwnership(room, userId, nickname) {
 function isQueueRequester(item, socketId, user) {
   if (!item) return false;
   return item.requestedById === socketId || item.requestedBy === user?.nickname;
+}
+
+export function renameRoom(roomId, actorId, name, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可修改房间名' };
+
+  room.name = normalizeRoomName(name, room.id);
+  persistRoom(room);
+  invalidateRoomsListCache();
+  return { room: serializeRoom(room) };
+}
+
+export function setRoomLock(roomId, actorId, options = {}, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可设置房间锁' };
+
+  const locked = Boolean(options.locked);
+  if (!locked) {
+    room.isLocked = false;
+    room.passwordHash = null;
+  } else {
+    room.isLocked = true;
+    const trimmed = String(options.password || '').trim();
+    room.passwordHash = trimmed ? hashPassword(trimmed) : null;
+  }
+
+  persistRoom(room);
+  invalidateRoomsListCache();
+  return { room: serializeRoom(room) };
+}
+
+function isUserChatMuted(room, userId) {
+  if (!room || !userId) return false;
+  if (room.ownerId === userId) return false;
+  if (room.muteAll) return true;
+  return room.mutedUserIds?.has(userId) ?? false;
+}
+
+export function setChatMute(roomId, actorId, options = {}, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可禁言' };
+
+  if (!room.mutedUserIds) room.mutedUserIds = new Set();
+
+  if (options.muteAll !== undefined) {
+    room.muteAll = Boolean(options.muteAll);
+  }
+
+  if (options.userId && options.muted !== undefined) {
+    const targetId = String(options.userId);
+    if (options.muted) {
+      room.mutedUserIds.add(targetId);
+    } else {
+      room.mutedUserIds.delete(targetId);
+    }
+  }
+
+  persistRoom(room);
+  return { room: serializeRoom(room) };
 }
 
 export function renameUser(roomId, socketId, nickname) {
@@ -1246,6 +1327,10 @@ export function addChatMessage(roomId, userId, text, options = {}) {
   if (content.length > 500) return { error: '消息过长' };
 
   const user = room.users.get(userId);
+  if (isUserChatMuted(room, userId)) {
+    return { error: room.muteAll ? '当前房间已全体禁言' : '你已被禁言' };
+  }
+
   const message = {
     id: generateId(),
     userId,
@@ -1322,6 +1407,7 @@ function serializeRoomSummary(room) {
     name: room.name,
     userCount: room.users.size,
     hasPassword: Boolean(room.passwordHash),
+    isLocked: Boolean(room.isLocked),
     isPlaying: room.isPlaying,
     currentSong: room.current
       ? { name: room.current.name, artist: room.current.artist }
@@ -1360,10 +1446,15 @@ function getMessagesForUser(room, userId) {
 function serializeRoom(room, options = {}) {
   repairPlaybackClock(room);
   const forUser = options.forUserId ? room.users.get(options.forUserId) : null;
+  const forUserId = options.forUserId || null;
   return {
     id: room.id,
     name: room.name,
     hasPassword: Boolean(room.passwordHash),
+    isLocked: Boolean(room.isLocked),
+    muteAll: Boolean(room.muteAll),
+    mutedUserIds: Array.from(room.mutedUserIds || []),
+    chatMuted: forUserId ? isUserChatMuted(room, forUserId) : false,
     ownerId: room.ownerId,
     creatorId: room.creatorId ?? null,
     ownerConnectionId: room.ownerConnectionId,
