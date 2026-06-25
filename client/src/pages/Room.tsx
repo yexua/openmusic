@@ -1234,7 +1234,7 @@ export default function Room() {
                             <SourceBadge source={song.source} variant="muted" />
                           </div>
                           <p className="truncate text-xs text-netease-muted">{song.artist}{song.album ? ` · ${song.album}` : ''}</p>
-                          <p className="truncate text-[11px] text-netease-muted/80">{song.requestedBy || '匿名'} 点歌{formatHistoryTime(song.requestedAt) ? ` · ${formatHistoryTime(song.requestedAt)}` : ''}</p>
+                          <p className="truncate text-[11px] text-netease-muted/80">{song.requestedBy || '匿名'} 播放{formatHistoryTime(song.requestedAt) ? ` · ${formatHistoryTime(song.requestedAt)}` : ''}</p>
                         </div>
                         <button
                           type="button"

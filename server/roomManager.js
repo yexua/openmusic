@@ -846,21 +846,6 @@ export async function addToQueue(roomId, song, requestedByUser) {
   });
 
   room.queue.push(item);
-  room.songHistory = [
-    serializeSongHistoryForClient({
-      id: item.id,
-      source: item.source,
-      name: item.name,
-      artist: item.artist,
-      album: item.album,
-      pic: item.pic,
-      duration: item.duration,
-      requestedBy: requestedBy.nickname,
-      requestedById: requestedBy.id,
-      requestedAt: item.addedAt,
-    }),
-    ...(room.songHistory || []),
-  ].slice(0, MAX_SONG_HISTORY);
 
   if (!room.current) {
     await withPlaybackLock(room, async () => {
@@ -994,12 +979,33 @@ async function withPlaybackLock(room, task) {
   }
 }
 
+function recordSongPlayHistory(room, song) {
+  if (!song?.id || !song?.name) return;
+  const playedAt = Date.now();
+  room.songHistory = [
+    serializeSongHistoryForClient({
+      id: song.id,
+      source: song.source,
+      name: song.name,
+      artist: song.artist,
+      album: song.album,
+      pic: song.pic,
+      duration: song.duration,
+      requestedBy: song.requestedBy || '随机推荐',
+      requestedById: song.requestedById || '',
+      requestedAt: playedAt,
+    }),
+    ...(room.songHistory || []),
+  ].slice(0, MAX_SONG_HISTORY);
+}
+
 function setCurrentSong(room, song) {
   room.randomLoading = false;
   room.current = serializeQueueItemForRoom(song);
   room.isPlaying = true;
   room.currentTime = 0;
   room.startedAt = Date.now();
+  recordSongPlayHistory(room, song);
   bumpPlaybackState(room);
   if (room.queue.length === 0) void ensureNextRandom(room);
 }
@@ -1610,7 +1616,7 @@ export function getChatHistoryForUser(roomId, userId, options = {}) {
   return { messages, hasMore: all.length > limit };
 }
 
-/** 按需拉取点歌历史（不随 room_update 广播，不含 url/lrc） */
+/** 按需拉取播放历史（不随 room_update 广播，不含 url/lrc） */
 export function getSongHistory(roomId, options = {}) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
