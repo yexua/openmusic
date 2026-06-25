@@ -2,11 +2,14 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageCircle, MicOff, Reply, Send, Smile, X } from 'lucide-react';
 import { useRoomStore } from '../stores/roomStore';
+import { useChatStore } from '../stores/chatStore';
 import { getClientId } from '../lib/clientId';
 import { useSocket } from '../hooks/useSocket';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { ChatMessage, ChatReplyRef, RoomUser } from '../types';
 import { isChatMutedForUser } from '../lib/chatMute';
 import QFaceImage from './QFaceImage';
+import { ChatMessageReactions, ChatReactionPicker } from './ChatMessageReactions';
 import {
   ensureQQFacesLoaded,
   getInitialQQFaces,
@@ -21,6 +24,41 @@ import {
 
 const MAX_CHAT_LENGTH = 500;
 
+function formatChatTime(timestamp: number): string {
+  if (!timestamp) return '';
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const time = new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+
+    if (date.toDateString() === now.toDateString()) return time;
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return `昨天 ${time}`;
+
+    if (date.getFullYear() === now.getFullYear()) {
+      const md = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date);
+      return `${md} ${time}`;
+    }
+
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  } catch {
+    return '';
+  }
+}
+
 function compactReplyText(text: string) {
   return text.replace(/\s+/g, ' ').slice(0, 48);
 }
@@ -30,11 +68,15 @@ export default function ChatPanel() {
   const nickname = useRoomStore((s) => s.nickname);
   const mySocketId = useRoomStore((s) => s.mySocketId);
   const isOwner = useRoomStore((s) => s.isOwner);
-  const { sendChat, setChatMute } = useSocket();
+  const messages = useChatStore((s) => s.messages);
+  const hasMoreOlder = useChatStore((s) => s.hasMoreOlder);
+  const loadingOlder = useChatStore((s) => s.loadingOlder);
+  const { sendChat, setChatMute, loadChatHistory, toggleChatReaction } = useSocket();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<ChatReplyRef | null>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [showEmoji, setShowEmoji] = useState(false);
   const [showMutePicker, setShowMutePicker] = useState(false);
   const [muteSaving, setMuteSaving] = useState(false);
@@ -47,12 +89,17 @@ export default function ChatPanel() {
   const [emojiGridRoot, setEmojiGridRoot] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
   const emojiPanelRef = useRef<HTMLDivElement>(null);
+  const chatPanelRef = useRef<HTMLDivElement>(null);
+  const emojiPickerPortalRef = useRef<HTMLDivElement>(null);
+  const isMobileLayout = useMediaQuery('(max-width: 1023px)');
   const bindEmojiGridRef = (el: HTMLDivElement | null) => {
     setEmojiGridRoot(el);
-  };  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+  };
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const composingRef = useRef(false);
   const roomIdRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
   const mentionQueryRef = useRef('');
 
   const mutedSet = useMemo(() => new Set(room?.mutedUserIds || []), [room?.mutedUserIds]);
@@ -115,13 +162,58 @@ export default function ChatPanel() {
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (stickToBottomRef.current) scrollToBottom('instant');
     else if (distanceToBottom < 120) scrollToBottom('smooth');
-  }, [chatScrollRoot, room?.messages.length, room?.id]);
+  }, [chatScrollRoot, messages.length, room?.id]);
 
   useEffect(() => {
-    if (!room?.messages.length || typeof Notification === 'undefined') return;
+    const el = chatScrollRoot;
+    if (!el || !room?.id) return;
+
+    const handleScroll = () => {
+      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = distanceToBottom < 80;
+
+      if (el.scrollTop > 48 || !hasMoreOlder || loadingOlderRef.current) return;
+
+      const oldest = useChatStore.getState().messages[0];
+      if (!oldest) return;
+
+      const requestRoomId = room.id;
+      loadingOlderRef.current = true;
+      useChatStore.getState().setLoadingOlder(true);
+      const prevHeight = el.scrollHeight;
+      const prevTop = el.scrollTop;
+
+      void loadChatHistory(oldest.timestamp, oldest.id).then((res) => {
+        loadingOlderRef.current = false;
+        if (useChatStore.getState().roomId !== requestRoomId) {
+          useChatStore.getState().setLoadingOlder(false);
+          return;
+        }
+        if (!res.success || !res.messages?.length) {
+          useChatStore.getState().setLoadingOlder(false);
+          if (res.success) {
+            useChatStore.getState().prependOlder([], false);
+          }
+          return;
+        }
+
+        useChatStore.getState().prependOlder(res.messages, Boolean(res.hasMore));
+        requestAnimationFrame(() => {
+          if (useChatStore.getState().roomId !== requestRoomId) return;
+          el.scrollTop = el.scrollHeight - prevHeight + prevTop;
+        });
+      });
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [chatScrollRoot, room?.id, hasMoreOlder, loadChatHistory]);
+
+  useEffect(() => {
+    if (!room?.id || !messages.length || typeof Notification === 'undefined') return;
     const myUserId = mySocketId || getClientId();
     const myName = nickname.trim();
-    const latestMessages = room.messages.slice(-5);
+    const latestMessages = messages.slice(-5);
 
     for (const msg of latestMessages) {
       if (notifiedMessageIdsRef.current.has(msg.id) || msg.userId === myUserId) continue;
@@ -146,23 +238,14 @@ export default function ChatPanel() {
         notify();
       }
     }
-  }, [mySocketId, nickname, room?.id, room?.messages]);
-
-  useEffect(() => {
-    const el = chatScrollRoot;
-    if (!el) return;
-    const onScroll = () => {
-      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [chatScrollRoot, room?.id]);
+  }, [mySocketId, nickname, room?.id, messages]);
 
   useEffect(() => {
     if (!showEmoji) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (emojiPanelRef.current?.contains(target)) return;
+      if (emojiPickerPortalRef.current?.contains(target)) return;
       setShowEmoji(false);
     };
     document.addEventListener('pointerdown', handlePointerDown);
@@ -178,6 +261,15 @@ export default function ChatPanel() {
     if (!showEmoji) return;
     ensureQQFacesLoaded();
   }, [showEmoji]);
+
+  useEffect(() => {
+    if (!showMutePicker) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowMutePicker(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showMutePicker]);
 
   if (!room) return null;
 
@@ -299,6 +391,13 @@ export default function ChatPanel() {
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    const res = await toggleChatReaction(messageId, emoji);
+    if (!res.success && res.error) {
+      setError(res.error);
+    }
+  };
+
   const deleteTextBeforeCursor = (count: number) => {
     const editor = inputRef.current;
     if (!editor || count <= 0) return;
@@ -361,30 +460,161 @@ export default function ChatPanel() {
     });
   };
 
-  const renderMessageText = (messageText: string) => {
+  const renderMessageText = (
+    messageText: string,
+    variant: 'message' | 'reply' = 'message',
+  ) => {
+    const isReply = variant === 'reply';
+    const faceClass = isReply
+      ? 'mx-0.5 inline-block h-4 w-auto max-w-5 object-contain align-middle'
+      : 'mx-0.5 inline-block h-7 w-auto max-w-8 object-contain align-middle';
+    const facePlaceholderClass = isReply
+      ? 'mx-0.5 inline-block h-4 w-4 align-middle'
+      : 'mx-0.5 inline-block h-7 w-6 align-middle';
+    const keyPrefix = isReply ? 'reply' : 'msg';
+
     return parseQQFaceTokens(messageText).map((part, index) => {
       if (typeof part === 'string') {
         const pieces = part.split(/(@[^\s@]{1,24})/g);
         return pieces.map((piece, pieceIndex) => piece.startsWith('@')
-          ? <span key={`mention-${index}-${pieceIndex}`} className="text-sky-300">{piece}</span>
-          : <span key={`text-${index}-${pieceIndex}`}>{piece}</span>);
+          ? <span key={`${keyPrefix}-mention-${index}-${pieceIndex}`} className="text-sky-300">{piece}</span>
+          : <span key={`${keyPrefix}-text-${index}-${pieceIndex}`}>{piece}</span>);
       }
       return (
         <QFaceImage
-          key={`face-${part.id}-${index}`}
+          key={`${keyPrefix}-face-${part.id}-${index}`}
           id={part.id}
           priority={QFaceLoadPriority.MESSAGE}
           nearPriority={QFaceLoadPriority.NEAR}
           observeRoot={chatScrollRoot}
-          className="mx-0.5 inline-block h-7 w-auto max-w-8 object-contain align-middle"
-          placeholderClassName="mx-0.5 inline-block h-7 w-6 align-middle"
+          className={faceClass}
+          placeholderClassName={facePlaceholderClass}
         />
       );
     });
   };
 
+  const renderEmojiPickerContent = (gridClassName: string) => (
+    <>
+      <div className="mb-1.5 flex flex-shrink-0 items-center justify-between px-1">
+        <span className="text-[11px] text-netease-muted">QQNT 表情</span>
+        <span className="text-[11px] text-netease-muted/60">{loadingFaces ? '正在补全...' : '点击插入'}</span>
+      </div>
+      <div ref={bindEmojiGridRef} className={gridClassName}>
+        {qqFaces.map((face) => (
+          <button
+            key={face.id}
+            type="button"
+            data-face-id={face.id}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => insertEmoji(face)}
+            className="flex h-8 items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/15"
+            title={face.text}
+          >
+            <QFaceImage
+              id={face.id}
+              priority={QFaceLoadPriority.PANEL}
+              nearPriority={QFaceLoadPriority.NEAR}
+              observeRoot={emojiGridRoot}
+              className="h-6 w-auto max-w-7 object-contain"
+              placeholderClassName="h-6 w-6"
+            />
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  const mobileEmojiPickerPortal = showEmoji && isMobileLayout ? (
+    <div className="fixed inset-0 z-[80]">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        onClick={() => setShowEmoji(false)}
+        aria-label="关闭表情"
+      />
+      <div
+        ref={emojiPickerPortalRef}
+        className="absolute inset-x-0 bottom-0 flex max-h-[min(55vh,360px)] flex-col rounded-t-2xl border-t border-netease-border/70 bg-netease-dark/98 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl backdrop-blur"
+      >
+        {renderEmojiPickerContent('grid min-h-0 flex-1 grid-cols-8 gap-1 overflow-y-auto pr-0.5')}
+      </div>
+    </div>
+  ) : null;
+
+  const renderMutePickerBody = () => (
+    <>
+      <div className="mb-3 flex flex-shrink-0 items-center justify-between px-1">
+        <h2 className="text-base font-semibold text-white">禁言管理</h2>
+        <button
+          type="button"
+          onClick={() => setShowMutePicker(false)}
+          className="rounded-lg p-1.5 text-white/40 hover:bg-white/10 hover:text-white"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5">
+        <button
+          type="button"
+          disabled={muteSaving}
+          onClick={() => void toggleMuteAll()}
+          className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${room.muteAll ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
+        >
+          <span className="font-medium">全体禁言</span>
+          <span className="text-xs text-netease-muted">{room.muteAll ? '点击解禁' : '点击禁言'}</span>
+        </button>
+        {orderedMuteUsers.map((user) => {
+          const isMuted = mutedSet.has(user.id);
+          return (
+            <button
+              key={user.id}
+              type="button"
+              disabled={muteSaving}
+              onClick={() => void toggleUserMute(user)}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-40 ${isMuted ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
+            >
+              <span className="min-w-0 truncate">{user.nickname}</span>
+              <span className="ml-2 flex-shrink-0 text-xs text-netease-muted">
+                {isMuted ? '点击解禁' : '点击禁言'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+
+  const desktopMutePickerPortal = showMutePicker && !isMobileLayout && chatPanelRef.current ? (
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-3">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/45"
+        onClick={() => setShowMutePicker(false)}
+        aria-label="关闭禁言管理"
+      />
+      <div className="relative z-10 flex w-[min(320px,92%)] max-h-[min(72%,360px)] flex-col rounded-2xl border border-white/10 glass p-4 shadow-2xl animate-fade-in">
+        {renderMutePickerBody()}
+      </div>
+    </div>
+  ) : null;
+
+  const mobileMutePickerPortal = showMutePicker && isMobileLayout ? (
+    <div className="fixed inset-0 z-[60]">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={() => setShowMutePicker(false)}
+        aria-label="关闭禁言管理"
+      />
+      <div className="absolute inset-x-0 bottom-0 flex max-h-[min(75vh,480px)] flex-col rounded-t-2xl border-t border-white/10 glass p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-2xl animate-fade-in">
+        {renderMutePickerBody()}
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-netease-border/50 bg-netease-card/30">
+    <div ref={chatPanelRef} className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-netease-border/50 bg-netease-card/30">
       <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-netease-border/50 px-4 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <MessageCircle className="h-4 w-4 text-netease-muted" />
@@ -406,38 +636,91 @@ export default function ChatPanel() {
       </div>
 
       <div ref={setChatScrollRoot} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
-        {room.messages.length === 0 ? (
+        {(loadingOlder || hasMoreOlder) && (
+          <p className="py-1 text-center text-[10px] text-netease-muted">
+            {loadingOlder ? '加载更早的消息…' : '上滑加载更多'}
+          </p>
+        )}
+        {messages.length === 0 ? (
           <p className="py-8 text-center text-xs text-netease-muted">暂无消息，打个招呼吧</p>
-        ) : room.messages.map((msg) => {
+        ) : messages.map((msg) => {
           const myUserId = mySocketId || getClientId();
           const isMe = msg.userId === myUserId;
           const isOwner = msg.userId === room.ownerId;
           const user = userMap.get(msg.userId);
           return (
             <div key={msg.id} className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`} onContextMenu={(event) => { event.preventDefault(); handleReply(msg); }}>
-              <div className="mb-0.5 flex items-center gap-1.5">
+              <div className={`mb-0.5 flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : ''}`}>
                 <button type="button" onClick={() => user && handleAt(user)} className={`text-[10px] ${isMe ? 'text-netease-red/80' : 'text-netease-muted'} hover:text-sky-300`}>
                   {msg.nickname}{isOwner && <span className="ml-1 text-amber-400/80">房主</span>}
                 </button>
+                {msg.timestamp > 0 && (
+                  <time
+                    dateTime={new Date(msg.timestamp).toISOString()}
+                    className="text-[10px] text-netease-muted/65 tabular-nums whitespace-nowrap"
+                    title={new Date(msg.timestamp).toLocaleString('zh-CN')}
+                  >
+                    {formatChatTime(msg.timestamp)}
+                  </time>
+                )}
               </div>
-              <div className={`flex max-w-[90%] items-start gap-1.5 ${isMe ? 'justify-end' : ''}`}>
-                <div className={`rounded-2xl px-3 py-1.5 text-sm leading-7 break-words ${isMe ? 'rounded-br-md bg-netease-red/20 text-white' : 'rounded-bl-md bg-netease-dark/80 text-white/90'}`}>
-                  {msg.replyTo && (
-                    <div className="mb-1 rounded-lg border-l-2 border-white/20 bg-black/20 px-2 py-1 text-xs leading-4 text-netease-muted">
-                      回复 {msg.replyTo.nickname}：{compactReplyText(msg.replyTo.text)}
-                    </div>
-                  )}
-                  {renderMessageText(msg.text)}
+              <div className={`flex max-w-[90%] items-start gap-1.5 ${isMe ? 'flex-row-reverse justify-end' : ''}`}>
+                <div className={`min-w-0 ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
+                  <div className={`rounded-2xl px-3 py-1.5 text-sm leading-7 break-words ${isMe ? 'rounded-br-md bg-netease-red/20 text-white' : 'rounded-bl-md bg-netease-dark/80 text-white/90'}`}>
+                    {msg.replyTo && (
+                      <div className="mb-1 rounded-lg border-l-2 border-white/20 bg-black/20 px-2 py-1 text-xs leading-5 text-netease-muted">
+                        <span>回复 {msg.replyTo.nickname}：</span>
+                        {renderMessageText(msg.replyTo.text, 'reply')}
+                      </div>
+                    )}
+                    {renderMessageText(msg.text)}
+                  </div>
+                  <ChatMessageReactions
+                    reactions={msg.reactions}
+                    myUserId={myUserId}
+                    alignEnd={isMe}
+                    onToggle={(emoji) => handleToggleReaction(msg.id, emoji)}
+                    containerRef={chatPanelRef}
+                    scrollRoot={chatScrollRoot}
+                  />
                 </div>
-                <button type="button" onClick={() => handleReply(msg)} className="mt-1 rounded p-0.5 text-netease-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100" title="回复">
-                  <Reply className="h-3 w-3" />
-                </button>
+                <div
+                  className={`relative mt-1 flex flex-col gap-0.5 transition-opacity ${
+                    reactionPickerMessageId === msg.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                >
+                  <button type="button" onClick={() => handleReply(msg)} className="rounded p-0.5 text-netease-muted hover:bg-white/10 hover:text-white" title="回复">
+                    <Reply className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={chatMuted}
+                    onClick={() => setReactionPickerMessageId((current) => (current === msg.id ? null : msg.id))}
+                    className="rounded p-0.5 text-netease-muted hover:bg-white/10 hover:text-white disabled:opacity-40"
+                    title="点评表情"
+                  >
+                    <Smile className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
             </div>
           );
         })}
         <div ref={bottomRef} />
       </div>
+
+      <ChatReactionPicker
+        open={reactionPickerMessageId !== null}
+        disabled={chatMuted}
+        scrollRoot={chatScrollRoot}
+        containerRef={chatPanelRef}
+        onClose={() => setReactionPickerMessageId(null)}
+        onPick={(emoji) => {
+          if (reactionPickerMessageId) {
+            void handleToggleReaction(reactionPickerMessageId, emoji);
+          }
+        }}
+      />
 
       <div className="flex-shrink-0 border-t border-netease-border/50 p-2">
         {chatMuted && (
@@ -447,40 +730,29 @@ export default function ChatPanel() {
         )}
         {replyTo && (
           <div className="mb-1.5 flex items-center justify-between rounded-xl bg-white/5 px-2 py-1 text-xs text-netease-muted">
-            <span className="min-w-0 truncate">回复 {replyTo.nickname}：{compactReplyText(replyTo.text)}</span>
+            <span className="min-w-0 flex items-center gap-0.5 truncate leading-5">
+              <span className="flex-shrink-0">回复 {replyTo.nickname}：</span>
+              <span className="min-w-0 truncate">{renderMessageText(replyTo.text, 'reply')}</span>
+            </span>
             <button type="button" onClick={() => setReplyTo(null)} className="ml-2 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
           </div>
         )}
         {error && <p className="mb-1 text-xs text-netease-red">{error}</p>}
         <div className="relative flex items-center gap-2" ref={emojiPanelRef}>
-          {showEmoji && (
+          {showEmoji && !isMobileLayout && (
             <div className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-2xl border border-netease-border/70 bg-netease-dark/95 p-2 shadow-2xl backdrop-blur">
-              <div className="mb-1.5 flex items-center justify-between px-1"><span className="text-[11px] text-netease-muted">QQNT 表情</span><span className="text-[10px] text-netease-muted/60">{loadingFaces ? '正在补全...' : '点击插入'}</span></div>
-              <div ref={bindEmojiGridRef} className="grid max-h-64 grid-cols-8 gap-1 overflow-y-auto pr-0.5">
-                {qqFaces.map((face) => (
-                  <button
-                    key={face.id}
-                    type="button"
-                    data-face-id={face.id}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => insertEmoji(face)}
-                    className="flex h-8 items-center justify-center rounded-lg transition-colors hover:bg-white/10 active:bg-white/15"
-                    title={face.text}
-                  >
-                    <QFaceImage
-                      id={face.id}
-                      priority={QFaceLoadPriority.PANEL}
-                      nearPriority={QFaceLoadPriority.NEAR}
-                      observeRoot={emojiGridRoot}
-                      className="h-6 w-auto max-w-7 object-contain"
-                      placeholderClassName="h-6 w-6"
-                    />
-                  </button>
-                ))}
-              </div>
+              {renderEmojiPickerContent('grid max-h-64 grid-cols-8 gap-1 overflow-y-auto pr-0.5')}
             </div>
           )}
-          <button type="button" onClick={() => setShowEmoji((value) => !value)} disabled={chatMuted} className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-netease-border/50 transition-colors disabled:opacity-40 ${showEmoji ? 'border-netease-red/30 bg-netease-red/15 text-netease-red' : 'bg-netease-dark text-netease-muted hover:bg-white/5 hover:text-white'}`} title="QQ 表情"><Smile className="h-4 w-4" /></button>
+          <button
+            type="button"
+            onClick={() => setShowEmoji((value) => !value)}
+            disabled={chatMuted}
+            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-netease-border/50 transition-colors disabled:opacity-40 ${showEmoji ? 'border-netease-red/30 bg-netease-red/15 text-netease-red' : 'bg-netease-dark text-netease-muted hover:bg-white/5 hover:text-white'}`}
+            title="QQ 表情"
+          >
+            <Smile className="h-4 w-4" />
+          </button>
           <div className="relative min-w-0 flex-1">
             {showMentionPicker && (
               <div className="absolute bottom-full left-0 z-20 mb-2 w-56 overflow-hidden rounded-2xl border border-netease-border/70 bg-netease-dark/95 p-1.5 shadow-2xl backdrop-blur">
@@ -559,46 +831,10 @@ export default function ChatPanel() {
         </div>
       </div>
 
-      {showMutePicker && createPortal(
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowMutePicker(false)} aria-label="关闭" />
-          <div className="relative w-full max-w-sm glass rounded-2xl border border-white/10 shadow-2xl p-4 animate-fade-in">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h2 className="text-base font-semibold text-white">禁言管理</h2>
-              <button type="button" onClick={() => setShowMutePicker(false)} className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="max-h-72 overflow-y-auto space-y-1 pr-0.5">
-              <button
-                type="button"
-                disabled={muteSaving}
-                onClick={() => void toggleMuteAll()}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${room.muteAll ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
-              >
-                <span className="font-medium">全体禁言</span>
-                <span className="text-xs text-netease-muted">{room.muteAll ? '点击解禁' : '点击禁言'}</span>
-              </button>
-              {orderedMuteUsers.map((user) => {
-                const isMuted = mutedSet.has(user.id);
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    disabled={muteSaving}
-                    onClick={() => void toggleUserMute(user)}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-40 ${isMuted ? 'bg-amber-400/15 text-amber-300' : 'text-white/90 hover:bg-white/10'}`}
-                  >
-                    <span className="min-w-0 truncate">{user.nickname}</span>
-                    <span className="ml-2 flex-shrink-0 text-xs text-netease-muted">
-                      {isMuted ? '点击解禁' : '点击禁言'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+      {mobileEmojiPickerPortal && createPortal(mobileEmojiPickerPortal, document.body)}
+
+      {desktopMutePickerPortal && createPortal(desktopMutePickerPortal, chatPanelRef.current!)}
+      {mobileMutePickerPortal && createPortal(mobileMutePickerPortal, document.body)}
     </div>
   );
 }

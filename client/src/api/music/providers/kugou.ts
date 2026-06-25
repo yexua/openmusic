@@ -20,6 +20,9 @@ interface KugouDetail {
   lrc: string;
 }
 
+const detailCache = new Map<string, KugouDetail | null>();
+const detailInflight = new Map<string, Promise<KugouDetail | null>>();
+
 function normalizeKugou(raw: KugouListItem): SearchResult {
   return {
     id: String(raw.id),
@@ -32,10 +35,42 @@ function normalizeKugou(raw: KugouListItem): SearchResult {
   };
 }
 
+function isPlayableUrl(url: string | undefined): boolean {
+  return Boolean(url?.trim().startsWith('http'));
+}
+
+/** 同一首歌 url/lrc 共用一次详情请求，避免 getSongUrl + getLyrics 各打一遍 */
 async function fetchKugouDetail(id: string): Promise<KugouDetail | null> {
-  const res = await fetchWithTimeout(`/api/music/cyapi/kugou/song?id=${encodeURIComponent(id)}`);
-  if (!res.ok) return null;
-  return res.json();
+  const key = id.trim();
+  if (!key) return null;
+
+  if (detailCache.has(key)) {
+    return detailCache.get(key) ?? null;
+  }
+
+  const inflight = detailInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    try {
+      const res = await fetchWithTimeout(`/api/music/cyapi/kugou/song?id=${encodeURIComponent(key)}`);
+      if (!res.ok) {
+        detailCache.set(key, null);
+        return null;
+      }
+      const detail = await res.json() as KugouDetail;
+      detailCache.set(key, detail);
+      return detail;
+    } catch {
+      detailCache.set(key, null);
+      return null;
+    } finally {
+      detailInflight.delete(key);
+    }
+  })();
+
+  detailInflight.set(key, promise);
+  return promise;
 }
 
 export const kugouProvider: MusicProvider = {
@@ -67,20 +102,20 @@ export const kugouProvider: MusicProvider = {
       artist: detail.artist,
       pic: detail.pic,
       duration: detail.duration,
-      url: detail.url,
+      url: isPlayableUrl(detail.url) ? detail.url : undefined,
       lrc: detail.lrc,
     };
   },
 
   async getSongUrl(song) {
-    if (song.url?.startsWith('http')) return song.url;
+    if (isPlayableUrl(song.url)) return song.url!;
     const detail = await fetchKugouDetail(song.id);
-    if (!detail?.url) throw new Error('无法获取播放链接');
-    return detail.url;
+    if (!isPlayableUrl(detail?.url)) throw new Error('无法获取播放链接');
+    return detail!.url;
   },
 
   async getLyrics(song) {
-    if (song.lrc?.startsWith('[')) return song.lrc;
+    if (song.lrc?.trim().startsWith('[')) return song.lrc;
     const detail = await fetchKugouDetail(song.id);
     return detail?.lrc || '';
   },

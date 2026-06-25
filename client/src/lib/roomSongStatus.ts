@@ -1,5 +1,6 @@
 import { songKey } from '../api/music';
 import type { RoomState, SearchResult, Song } from '../types';
+import { useSongHistoryStore } from '../stores/songHistoryStore';
 
 type SongRef = Pick<Song, 'source' | 'id'>;
 
@@ -19,8 +20,13 @@ export function isSongPlayedInRoom(
   room: RoomState | null | undefined,
   song: SongRef,
 ): boolean {
-  if (!room?.songHistory?.length) return false;
   const key = songKey(song);
+  const { songs, roomId } = useSongHistoryStore.getState();
+  if (room && roomId === room.id && songs.length > 0) {
+    if (!songs.some((item) => songKey(item) === key)) return false;
+    return !isSongInRoomQueue(room, song);
+  }
+  if (!room?.songHistory?.length) return false;
   if (!room.songHistory.some((item) => songKey(item) === key)) return false;
   return !isSongInRoomQueue(room, song);
 }

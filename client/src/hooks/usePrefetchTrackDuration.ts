@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useRoomStore } from '../stores/roomStore';
 import { useAudioStore } from '../stores/audioStore';
 import { getLyrics, getLrcFallbackDurationMs, getTrackKey } from '../api/music';
+import { reportTrackDurationToServer } from '../lib/reportTrackDuration';
 import { resolveDisplayDurationSeconds } from './useTrackDuration';
 
 /** 切歌后为所有用户预取歌词时长，避免进度条在 duration 缺失时一直为 0 */
@@ -34,7 +35,10 @@ export function usePrefetchTrackDuration() {
       .then((lrc) => {
         if (gen !== genRef.current) return;
         const ms = getLrcFallbackDurationMs(lrc);
-        if (ms) setLrcDuration(trackKey, ms);
+        if (ms) {
+          setLrcDuration(trackKey, ms);
+          reportTrackDurationToServer(current.queueId, ms);
+        }
       })
       .catch(() => {});
   }, [

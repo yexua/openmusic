@@ -1,5 +1,6 @@
 import { useAudioStore } from '../stores/audioStore';
 import { useRoomStore } from '../stores/roomStore';
+import { useChatStore } from '../stores/chatStore';
 import { getSharedAudio } from './audioElement';
 import { getClientId } from './clientId';
 import { getClientPlaybackState, getPlaybackTime } from './playbackState';
@@ -85,7 +86,7 @@ function roomSnapshot() {
       duration: room.current.duration,
     } : null,
     queueLength: room?.queue?.length ?? 0,
-    messages: room?.messages?.length ?? 0,
+    messages: useChatStore.getState().messages.length,
   };
 }
 

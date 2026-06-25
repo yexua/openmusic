@@ -104,17 +104,16 @@ async function fetchSongUrl(
   const promise = (async () => {
     try {
       let url: string | null = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          url = await getSongUrl({
-            id: song.id,
-            source: song.source || 'netease',
-            url: options.refresh ? undefined : song.url,
-          });
-          break;
-        } catch {
-          if (attempt === 1) throw new Error('fetch failed');
-        }
+      try {
+        url = await getSongUrl({
+          id: song.id,
+          source: song.source || 'netease',
+          url: options.refresh ? undefined : song.url,
+        });
+      } catch {
+        // 酷狗等源若详情已确认 url 为空，重试同一接口无意义
+        markTrackSourceError(song);
+        return null;
       }
       if (!url) {
         markTrackSourceError(song);

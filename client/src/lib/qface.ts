@@ -160,6 +160,15 @@ export function qqFaceToken(id: string): string {
   return `[qqface:${id}]`;
 }
 
+export function getPopularReactionFaces(): QFaceItem[] {
+  return buildPopularFaces();
+}
+
+export function parseQQFaceToken(emoji: string): string | null {
+  const match = /^\[qqface:([^\]]+)\]$/.exec(emoji.trim());
+  return match ? match[1] : null;
+}
+
 export function hasFullQQFaces(): boolean {
   return fullFacesCache !== null;
 }

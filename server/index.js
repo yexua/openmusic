@@ -41,12 +41,17 @@ import {
   approveSkip,
   rejectSkip,
   addChatMessage,
+  toggleChatReaction,
+  getChatHistoryForUser,
+  getSongHistory,
+  INITIAL_CHAT_LIMIT,
   advancePlaybackIfEnded,
   getPlaybackTime,
   canUserMutate,
   kickUser,
   transferOwner,
   updateUserLocation,
+  reportTrackDuration,
 } from './roomManager.js';
 import {
   isCyapiConfigured,
@@ -291,10 +296,9 @@ function sanitizeClientSong(song) {
     duration: Number.isFinite(duration) && duration > 0 && duration < 24 * 60 * 60 * 1000
       ? duration
       : undefined,
-    lrc: limitText(song.lrc, 20000) || undefined,
   };
 
-  // 播放 URL 必须由服务端可信 provider 解析，不能信任客户端直传。
+  // 歌词/播放 URL 由客户端按需拉取，服务端不持久化。
   return { song: sanitized };
 }
 
@@ -838,9 +842,8 @@ io.on('connection', (socket) => {
     // 无当前歌曲且队列为空时，加入后会异步拉取随机歌曲，先告知客户端"加载中"，
     // 避免播放条在随机歌曲到达前直接消失。
     const loadingRoom = markRandomLoading(id);
-    const roomPayload = loadingRoom
-      ? { ...loadingRoom, messages: joinedRoom.messages, chatVisibleSince: joinedRoom.chatVisibleSince }
-      : joinedRoom;
+    const roomPayload = loadingRoom || joinedRoom;
+    const chatHistory = getChatHistoryForUser(id, userId, { limit: INITIAL_CHAT_LIMIT });
     const joinInternal = getRoomInternal(id);
     const playbackState = joinInternal ? buildPlaybackState(joinInternal) : null;
 
@@ -848,6 +851,8 @@ io.on('connection', (socket) => {
     callback?.({
       success: true,
       room: roomPayload,
+      messages: chatHistory.messages || [],
+      chatHasMore: Boolean(chatHistory.hasMore),
       playbackState,
       socketId: userId,
       connectionId: socket.id,
@@ -1276,8 +1281,84 @@ io.on('connection', (socket) => {
     }
 
     io.to(roomId).emit('chat_message', result.message);
-    io.to(roomId).emit('room_update', result.room);
     callback?.({ success: true, message: result.message });
+  });
+
+  socket.on('toggle_chat_reaction', ({ messageId, emoji }, callback) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = toggleChatReaction(roomId, getSocketUserId(socket), messageId, emoji);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('chat_reaction_update', {
+      messageId: result.messageId,
+      reactions: result.reactions,
+    });
+    callback?.({ success: true, messageId: result.messageId, reactions: result.reactions });
+  });
+
+  socket.on('load_chat_history', ({ before, beforeId, limit }, callback) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = getChatHistoryForUser(roomId, getSocketUserId(socket), { before, beforeId, limit });
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    callback?.({
+      success: true,
+      messages: result.messages,
+      hasMore: Boolean(result.hasMore),
+    });
+  });
+
+  socket.on('load_song_history', ({ limit }, callback) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = getSongHistory(roomId, { limit });
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    callback?.({ success: true, songs: result.songs });
+  });
+
+  socket.on('report_track_duration', ({ queueId, durationMs }, callback) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = reportTrackDuration(
+      roomId,
+      getSocketUserId(socket),
+      queueId,
+      durationMs,
+      socket.id,
+    );
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+    callback?.({ success: true, skipped: Boolean(result.skipped) });
   });
 
 
@@ -1301,7 +1382,7 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: result.error });
       return;
     }
-  callback?.({ success: true, favorites: result.favorites, favorite: result.favorite });
+    callback?.({ success: true, favorites: result.favorites, favorite: result.favorite });
   });
 
   socket.on('import_favorites', async ({ songs }, callback) => {

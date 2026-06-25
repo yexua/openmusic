@@ -41,6 +41,7 @@ import NeteaseToplistModal from '../components/NeteaseToplistModal';
 import ChatPanel from '../components/ChatPanel';
 import HotSongPanel from '../components/HotSongPanel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useSongHistoryStore } from '../stores/songHistoryStore';
 
 import JumpRequestBanner from '../components/JumpRequestBanner';
 import Toast from '../components/Toast';
@@ -139,7 +140,7 @@ export default function Room() {
 
   const { room, showPlayer, setShowPlayer, isOwner, mySocketId, exitReason } = useRoomStore();
 
-  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock } = useSocket();
+  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, loadSongHistory } = useSocket();
   const { applyFavorites } = useFavorites();
 
 
@@ -186,6 +187,13 @@ export default function Room() {
   const [lockOpen, setLockOpen] = useState(false);
   const [lockPassword, setLockPassword] = useState('');
   const [lockSaving, setLockSaving] = useState(false);
+  const songHistoryItems = useSongHistoryStore((s) => s.songs);
+  const songHistoryLoading = useSongHistoryStore((s) => s.loading);
+
+  useEffect(() => {
+    if (!songHistoryOpen || !room?.id) return;
+    void loadSongHistory();
+  }, [songHistoryOpen, room?.id, loadSongHistory]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -1145,19 +1153,24 @@ export default function Room() {
             <div className="flex items-center justify-between border-b border-netease-border/50 px-4 py-3">
               <div>
                 <h2 className="text-sm font-medium text-white">点歌历史</h2>
-                <p className="mt-0.5 text-xs text-netease-muted">最近 {room.songHistory?.length || 0} 首，可直接复播</p>
+                <p className="mt-0.5 text-xs text-netease-muted">最近 {songHistoryItems.length} 首，可直接复播</p>
               </div>
               <button type="button" onClick={() => setSongHistoryOpen(false)} className="rounded-lg p-1.5 text-netease-muted hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {!room.songHistory?.length ? (
+              {songHistoryLoading ? (
+                <div className="py-16 text-center text-sm text-netease-muted">
+                  <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin opacity-40" />
+                  加载点歌历史…
+                </div>
+              ) : !songHistoryItems.length ? (
                 <div className="py-16 text-center text-sm text-netease-muted">
                   <History className="mx-auto mb-2 h-8 w-8 opacity-40" />
                   暂无点歌历史
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {room.songHistory.map((song: SongHistoryItem, index: number) => {
+                  {songHistoryItems.map((song: SongHistoryItem, index: number) => {
                     const key = songKey(song);
                     return (
                       <div key={`${song.requestedAt}-${key}-${index}`} className="group flex items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-netease-card/80 sm:gap-3 sm:p-3">

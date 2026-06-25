@@ -73,6 +73,8 @@ export async function getSongUrl(song: Pick<Song, 'id' | 'source' | 'url'>): Pro
 }
 
 const lyricsInflight = new Map<string, Promise<string>>();
+const LYRICS_CACHE_TTL_MS = 5 * 60_000;
+const lyricsCache = new Map<string, { value: string; expires: number }>();
 
 function lyricsRequestKey(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>) {
   const source = song.source || 'netease';
@@ -101,10 +103,16 @@ async function fetchLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>): 
 
 export async function getLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>): Promise<string> {
   const key = lyricsRequestKey(song);
+  const cached = lyricsCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
   const inflight = lyricsInflight.get(key);
   if (inflight) return inflight;
 
-  const promise = fetchLyrics(song).finally(() => {
+  const promise = fetchLyrics(song).then((lrc) => {
+    lyricsCache.set(key, { value: lrc, expires: Date.now() + LYRICS_CACHE_TTL_MS });
+    return lrc;
+  }).finally(() => {
     lyricsInflight.delete(key);
   });
   lyricsInflight.set(key, promise);

@@ -3,9 +3,11 @@ import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 import { useRoomStore } from '../stores/roomStore';
+import { useChatStore } from '../stores/chatStore';
+import { useSongHistoryStore } from '../stores/songHistoryStore';
 import { useAudioStore } from '../stores/audioStore';
 
-import type { ChatMention, ChatReplyRef, ChatMessage, FavoriteSong, PlaybackState, RoomState, Song } from '../types';
+import type { ChatMention, ChatReplyRef, ChatMessage, FavoriteSong, PlaybackState, RoomState, Song, SongHistoryItem } from '../types';
 
 import { stopSharedAudio } from '../lib/audioElement';
 import { resetDriftController } from '../lib/driftController';
@@ -21,6 +23,7 @@ import {
 import { getClientId, getClientToken, rememberClientIdentity } from '../lib/clientId';
 import { mergeRoomState } from '../lib/mergeRoomState';
 import { debugLog, setDebugSocketProvider } from '../lib/debugTools';
+import { bindReportTrackDurationSocket } from '../lib/reportTrackDuration';
 
 
 
@@ -60,6 +63,8 @@ function getSocket(): Socket {
   return socket;
 
 }
+
+bindReportTrackDurationSocket(getSocket);
 
 
 function emitWithAck<TResponse>(
@@ -102,6 +107,36 @@ function applyJoinSnapshot(room: RoomState, playbackState?: PlaybackState) {
   }
 }
 
+function applyJoinChat(room: RoomState, messages?: ChatMessage[], chatHasMore?: boolean) {
+  useChatStore.getState().reset(
+    room.id,
+    messages || [],
+    Boolean(chatHasMore),
+    room.chatVisibleSince ?? null,
+  );
+}
+
+function prefetchSongHistory(roomId: string) {
+  void emitWithAck<{ success: boolean; songs?: SongHistoryItem[] }>(
+    'load_song_history',
+    { limit: 150 },
+    { success: false },
+  ).then((res) => {
+    if (useRoomStore.getState().room?.id !== roomId) return;
+    if (res.success && res.songs) {
+      useSongHistoryStore.getState().setSongs(roomId, res.songs);
+    }
+  });
+}
+
+function applyJoinExtras(
+  room: RoomState,
+  extras: { messages?: ChatMessage[]; chatHasMore?: boolean },
+) {
+  applyJoinChat(room, extras.messages, extras.chatHasMore);
+  prefetchSongHistory(room.id);
+}
+
 function rejoinLastRoom() {
   const session = lastJoinSession;
   const currentRoom = useRoomStore.getState().room;
@@ -116,6 +151,8 @@ function rejoinLastRoom() {
       res: {
         success: boolean;
         room?: RoomState;
+        messages?: ChatMessage[];
+        chatHasMore?: boolean;
         playbackState?: PlaybackState;
         socketId?: string;
         connectionId?: string;
@@ -129,6 +166,7 @@ function rejoinLastRoom() {
 
       applyRoomSnapshot(res.room, true);
       applyJoinSnapshot(res.room, res.playbackState);
+      applyJoinExtras(res.room, { messages: res.messages, chatHasMore: res.chatHasMore });
       rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
       if (res.socketId) {
         useRoomStore.getState().setConnectionInfo(res.socketId, Boolean(res.isOwner), res.connectionId || null);
@@ -192,21 +230,24 @@ if (socketListenersAttached) return;
 
 
     const onChatMessage = (message: ChatMessage) => {
+      useChatStore.getState().append(message);
+    };
 
-      const current = useRoomStore.getState().room;
-
-      if (!current) return;
-
-      if (current.messages.some((m) => m.id === message.id)) return;
-      if (current.chatVisibleSince != null && message.timestamp < current.chatVisibleSince) return;
-
-      useRoomStore.getState().setRoom({ ...current, messages: [...current.messages, message] });
-
+    const onChatReactionUpdate = ({
+      messageId,
+      reactions,
+    }: {
+      messageId: string;
+      reactions: ChatMessage['reactions'];
+    }) => {
+      useChatStore.getState().updateReactions(messageId, reactions);
     };
 
     const onKicked = ({ message }: { message?: string }) => {
       joinGeneration += 1;
       lastJoinSession = null;
+      useChatStore.getState().clear();
+      useSongHistoryStore.getState().clear();
       stopSharedAudio();
       resetSyncStateMachine();
       resetPhaseSync();
@@ -230,6 +271,8 @@ if (socketListenersAttached) return;
     s.on('playback_state', onPlaybackState);
 
     s.on('chat_message', onChatMessage);
+
+    s.on('chat_reaction_update', onChatReactionUpdate);
 
     s.on('kicked', onKicked);
 
@@ -294,6 +337,8 @@ if (!connected.current && !socketConnectRequested) {
         error?: string;
         needsPassword?: boolean;
         room?: RoomState;
+        messages?: ChatMessage[];
+        chatHasMore?: boolean;
         playbackState?: PlaybackState;
         socketId?: string;
         connectionId?: string;
@@ -307,6 +352,7 @@ if (!connected.current && !socketConnectRequested) {
             lastJoinSession = session;
             applyRoomSnapshot(res.room, true);
             applyJoinSnapshot(res.room, res.playbackState);
+            applyJoinExtras(res.room, { messages: res.messages, chatHasMore: res.chatHasMore });
             rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
 
             if (res.socketId) {
@@ -331,6 +377,8 @@ if (!connected.current && !socketConnectRequested) {
   const leaveRoom = useCallback((): Promise<void> => {
     joinGeneration += 1;
     lastJoinSession = null;
+    useChatStore.getState().clear();
+    useSongHistoryStore.getState().clear();
     stopSharedAudio();
     resetSyncStateMachine();
     resetPhaseSync();
@@ -451,6 +499,17 @@ if (s.connected) {
 
   }, []);
 
+  const toggleChatReaction = useCallback((
+    messageId: string,
+    emoji: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    return emitWithAck(
+      'toggle_chat_reaction',
+      { messageId, emoji },
+      { success: false, error: '连接超时，请重试' },
+    );
+  }, []);
+
   const listFavorites = useCallback((): Promise<{ success: boolean; favorites?: FavoriteSong[]; error?: string }> => {
     return emitWithAck('list_favorites', {}, { success: false, error: '连接超时，请重试' });
   }, []);
@@ -555,6 +614,48 @@ if (s.connected) {
 
 
 
+  const loadChatHistory = useCallback((before: number, beforeId: string): Promise<{
+    success: boolean;
+    messages?: ChatMessage[];
+    hasMore?: boolean;
+    error?: string;
+  }> => {
+    return emitWithAck<{ success: boolean; messages?: ChatMessage[]; hasMore?: boolean; error?: string }>(
+      'load_chat_history',
+      { before, beforeId, limit: 50 },
+      { success: false, error: '连接超时，请重试' },
+    );
+  }, []);
+
+  const loadSongHistory = useCallback((): Promise<{
+    success: boolean;
+    songs?: SongHistoryItem[];
+    error?: string;
+  }> => {
+    const roomId = useRoomStore.getState().room?.id;
+    if (!roomId) return Promise.resolve({ success: false, error: '未加入房间' });
+    useSongHistoryStore.getState().setLoading(true);
+    return emitWithAck<{ success: boolean; songs?: SongHistoryItem[]; error?: string }>(
+      'load_song_history',
+      { limit: 150 },
+      { success: false, error: '连接超时，请重试' },
+    )
+      .then((res) => {
+        if (useRoomStore.getState().room?.id !== roomId) {
+          if (useSongHistoryStore.getState().roomId === roomId) {
+            useSongHistoryStore.getState().setLoading(false);
+          }
+          return res;
+        }
+        if (res.success && res.songs) {
+          useSongHistoryStore.getState().setSongs(roomId, res.songs);
+        } else {
+          useSongHistoryStore.getState().setLoading(false);
+        }
+        return res;
+      });
+  }, []);
+
   return {
 
     joinRoom,
@@ -587,6 +688,8 @@ if (s.connected) {
 
     sendChat,
 
+    toggleChatReaction,
+
 
     listFavorites,
 
@@ -603,6 +706,10 @@ if (s.connected) {
     setRoomLock,
 
     setChatMute,
+
+    loadChatHistory,
+
+    loadSongHistory,
 
     connect,
 

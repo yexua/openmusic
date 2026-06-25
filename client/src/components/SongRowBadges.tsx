@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { SearchResult } from '../types';
 import { useRoomStore } from '../stores/roomStore';
+import { useSongHistoryStore } from '../stores/songHistoryStore';
 import { getRoomSongStatus } from '../lib/roomSongStatus';
 import SourceBadge from './SourceBadge';
 
@@ -14,10 +15,13 @@ interface Props {
 /** 已点歌 / 已播放 / 平台标签 — 同一行、同一高度 */
 export default function SongRowBadges({ song }: Props) {
   const room = useRoomStore((s) => s.room);
+  const historySongs = useSongHistoryStore((s) => s.songs);
+  const historyRoomId = useSongHistoryStore((s) => s.roomId);
+  const historyLoaded = useSongHistoryStore((s) => s.loaded);
 
   const { inQueue, played } = useMemo(
     () => getRoomSongStatus(room, song),
-    [room, song.id, song.source],
+    [room, song.id, song.source, historySongs, historyRoomId, historyLoaded],
   );
 
   return (

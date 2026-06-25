@@ -58,6 +58,16 @@ export interface ChatReplyRef {
   text: string;
 }
 
+export interface ChatReactionUser {
+  userId: string;
+  nickname: string;
+}
+
+export interface ChatReactionGroup {
+  emoji: string;
+  users: ChatReactionUser[];
+}
+
 export interface ChatMessage {
   id: string;
   userId: string;
@@ -66,6 +76,7 @@ export interface ChatMessage {
   mentions?: ChatMention[];
   replyTo?: ChatReplyRef | null;
   timestamp: number;
+  reactions?: ChatReactionGroup[];
 }
 
 export interface SkipRequest {
@@ -97,9 +108,12 @@ export interface RoomState {
   userCount: number;
   jumpRequests: JumpRequest[];
   skipRequests: SkipRequest[];
-  messages: ChatMessage[];
+  messages?: ChatMessage[];
   /** 非 null 时仅能看到该时间戳之后的消息（首次进入且未发言的新用户） */
   chatVisibleSince?: number | null;
+  /** @deprecated 不再随 room_update 广播，由 chatStore 维护 */
+  chatHasMore?: boolean;
+  /** @deprecated 不再随 room_update 广播，按需 load_song_history */
   songHistory?: SongHistoryItem[];
   /** 服务端正在为空队列拉取随机歌曲 */
   randomLoading?: boolean;

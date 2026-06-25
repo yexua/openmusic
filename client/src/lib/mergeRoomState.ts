@@ -1,16 +1,9 @@
 import type { RoomState } from '../types';
 
-/** 受限聊天用户忽略广播里的全量历史，只保留自己可见的消息。 */
+/** room_update 已是核心快照（不含 messages/songHistory），直接替换本地房间状态。 */
 export function mergeRoomState(incoming: RoomState, current: RoomState | null): RoomState {
   if (!current || current.id !== incoming.id) {
     return incoming;
-  }
-  if (current.chatVisibleSince != null) {
-    return {
-      ...incoming,
-      messages: current.messages,
-      chatVisibleSince: current.chatVisibleSince,
-    };
   }
   return incoming;
 }

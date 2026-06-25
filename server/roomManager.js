@@ -16,6 +16,8 @@ const ROOM_EMPTY_TTL_MS = 10 * 60 * 1000;
 const MAX_QUEUE_LENGTH = 200;
 const MAX_CHAT_MESSAGES = 300;
 const MAX_SONG_HISTORY = 150;
+export const INITIAL_CHAT_LIMIT = 100;
+export const CHAT_PAGE_LIMIT = 50;
 const MAX_RANDOM_HISTORY = 200;
 const MAX_RANDOM_PREFETCH_ATTEMPTS = 20;
 const AUTO_ADVANCE_GRACE_SEC = 0.15;
@@ -92,38 +94,44 @@ function snapshotRoomForStorage(room) {
     mutedUserIds: Array.from(room.mutedUserIds || []),
     creatorId: room.creatorId ?? null,
     bannedUserIds: Array.from(room.bannedUserIds || []),
-    queue: room.queue,
-    current: room.current,
+    queue: room.queue.map(serializeQueueItemForRoom).filter(Boolean),
+    current: serializeQueueItemForRoom(room.current),
     isPlaying: room.isPlaying,
     currentTime: getPlaybackTime(room),
     playbackVersion: room.playbackVersion ?? 0,
     playbackUpdatedAt: room.playbackUpdatedAt ?? Date.now(),
     messages: room.messages.slice(-MAX_CHAT_MESSAGES),
     knownUserIds: Array.from(room.knownUserIds || []),
-    songHistory: (room.songHistory || []).slice(-MAX_SONG_HISTORY),
+    songHistory: (room.songHistory || [])
+      .slice(0, MAX_SONG_HISTORY)
+      .map(serializeSongHistoryForClient)
+      .filter(Boolean),
     jumpRequests: room.jumpRequests,
     skipRequests: room.skipRequests,
     randomPlayedKeys: Array.from(room.randomPlayedKeys),
-    nextRandom: room.nextRandom,
+    nextRandom: serializeSongMeta(room.nextRandom),
     createdAt: room.createdAt,
   };
 }
 
 function restoreRoomFromStorage(data) {
   const room = createEmptyRoom(data.id, data.name, data.passwordHash ?? null);
-  room.queue = data.queue || [];
-  room.current = data.current ?? null;
+  room.queue = (data.queue || []).map(serializeQueueItemForRoom).filter(Boolean);
+  room.current = serializeQueueItemForRoom(data.current) ?? null;
   room.isPlaying = Boolean(data.isPlaying);
   room.currentTime = data.currentTime ?? 0;
   room.playbackVersion = data.playbackVersion ?? 0;
   room.playbackUpdatedAt = data.playbackUpdatedAt ?? Date.now();
   room.messages = data.messages || [];
   room.knownUserIds = new Set(data.knownUserIds || []);
-  room.songHistory = Array.isArray(data.songHistory) ? data.songHistory.slice(-MAX_SONG_HISTORY) : [];
+  room.songHistory = (Array.isArray(data.songHistory) ? data.songHistory : [])
+    .slice(0, MAX_SONG_HISTORY)
+    .map(serializeSongHistoryForClient)
+    .filter(Boolean);
   room.jumpRequests = data.jumpRequests || [];
   room.skipRequests = data.skipRequests || [];
   room.randomPlayedKeys = new Set(data.randomPlayedKeys || []);
-  room.nextRandom = data.nextRandom ?? null;
+  room.nextRandom = serializeSongMeta(data.nextRandom);
   room.creatorId = data.creatorId ?? null;
   room.bannedUserIds = new Set(data.bannedUserIds || []);
   room.isLocked = Boolean(data.isLocked);
@@ -621,6 +629,13 @@ export function renameUser(roomId, socketId, nickname) {
       message.userId = socketId;
       message.nickname = nextNickname;
     }
+    if (message.reactions) {
+      for (const users of Object.values(message.reactions)) {
+        for (const entry of users) {
+          if (entry.userId === socketId) entry.nickname = nextNickname;
+        }
+      }
+    }
   });
 
   persistRoom(room);
@@ -760,7 +775,7 @@ export function updateUserLocation(roomId, userId, location) {
   if (!room || !user) return null;
 
   const nextLocation = String(location || '').trim().slice(0, 12);
-  if (user.location === nextLocation) return serializeRoom(room);
+  if (user.location === nextLocation) return null;
 
   user.location = nextLocation;
   persistRoom(room);
@@ -820,7 +835,7 @@ export async function addToQueue(roomId, song, requestedByUser) {
     return { error: `队列最多保留 ${MAX_QUEUE_LENGTH} 首歌` };
   }
 
-  const item = {
+  const item = serializeQueueItemForRoom({
     queueId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     ...song,
     requestedBy: requestedBy.nickname,
@@ -828,11 +843,11 @@ export async function addToQueue(roomId, song, requestedByUser) {
     addedAt: Date.now(),
     likedByIds: [],
     ownerPriority: 0,
-  };
+  });
 
   room.queue.push(item);
   room.songHistory = [
-    {
+    serializeSongHistoryForClient({
       id: item.id,
       source: item.source,
       name: item.name,
@@ -840,12 +855,10 @@ export async function addToQueue(roomId, song, requestedByUser) {
       album: item.album,
       pic: item.pic,
       duration: item.duration,
-      url: item.url,
-      lrc: item.lrc,
       requestedBy: requestedBy.nickname,
       requestedById: requestedBy.id,
       requestedAt: item.addedAt,
-    },
+    }),
     ...(room.songHistory || []),
   ].slice(0, MAX_SONG_HISTORY);
 
@@ -957,7 +970,7 @@ async function ensureNextRandom(room) {
         // const key = songIdentity(song.source, song.id);
         // if (room.randomPlayedKeys.has(key)) continue;
 
-        room.nextRandom = song;
+        room.nextRandom = serializeSongMeta(song);
         break;
       }
     } finally {
@@ -983,7 +996,7 @@ async function withPlaybackLock(room, task) {
 
 function setCurrentSong(room, song) {
   room.randomLoading = false;
-  room.current = song;
+  room.current = serializeQueueItemForRoom(song);
   room.isPlaying = true;
   room.currentTime = 0;
   room.startedAt = Date.now();
@@ -1021,7 +1034,7 @@ async function playNextUnlocked(room, options = {}) {
   }
 
   if (room.queue.length > 0) {
-    if (random && !room.nextRandom) room.nextRandom = random;
+    if (random && !room.nextRandom) room.nextRandom = serializeSongMeta(random);
     setCurrentSong(room, room.queue.shift());
     return;
   }
@@ -1322,6 +1335,76 @@ export function rejectSkip(roomId, socketId, requestId, connectionId = null) {
   return { room: serializeRoom(room) };
 }
 
+const MAX_REACTION_EMOJI_LEN = 32;
+const QQFACE_REACTION_RE = /^\[qqface:[^\]]+\]$/;
+
+function sanitizeReactionEmoji(emoji) {
+  const text = String(emoji || '').trim();
+  if (!text || text.length > MAX_REACTION_EMOJI_LEN) return '';
+  if (QQFACE_REACTION_RE.test(text)) return text;
+  if ([...text].length <= 4) return text;
+  return '';
+}
+
+function serializeReactions(reactions) {
+  if (!reactions || typeof reactions !== 'object') return [];
+  return Object.entries(reactions)
+    .map(([emoji, users]) => ({
+      emoji,
+      users: Array.isArray(users) ? users : [],
+    }))
+    .filter((group) => group.users.length > 0);
+}
+
+function serializeChatMessage(message) {
+  return {
+    id: message.id,
+    userId: message.userId,
+    nickname: message.nickname,
+    text: message.text,
+    mentions: message.mentions || [],
+    replyTo: message.replyTo || null,
+    timestamp: message.timestamp,
+    reactions: serializeReactions(message.reactions),
+  };
+}
+
+export function toggleChatReaction(roomId, userId, messageId, emoji) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+
+  const emojiKey = sanitizeReactionEmoji(emoji);
+  if (!emojiKey) return { error: '无效表情' };
+
+  const message = room.messages.find((entry) => entry.id === messageId);
+  if (!message) return { error: '消息不存在' };
+
+  if (isUserChatMuted(room, userId)) {
+    return { error: room.muteAll ? '当前房间已全体禁言' : '你已被禁言' };
+  }
+
+  const user = room.users.get(userId);
+  if (!user) return { error: '未加入房间' };
+
+  if (!message.reactions) message.reactions = {};
+  if (!message.reactions[emojiKey]) message.reactions[emojiKey] = [];
+
+  const list = message.reactions[emojiKey];
+  const index = list.findIndex((entry) => entry.userId === userId);
+  if (index >= 0) {
+    list.splice(index, 1);
+    if (list.length === 0) delete message.reactions[emojiKey];
+  } else {
+    list.push({ userId, nickname: user.nickname || '匿名' });
+  }
+
+  persistRoom(room);
+  return {
+    messageId,
+    reactions: serializeReactions(message.reactions),
+  };
+}
+
 export function addChatMessage(roomId, userId, text, options = {}) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
@@ -1351,7 +1434,7 @@ export function addChatMessage(roomId, userId, text, options = {}) {
   }
 
   persistRoom(room);
-  return { message, room: serializeRoom(room) };
+  return { message: serializeChatMessage(message) };
 }
 
 export function getPlaybackTime(room) {
@@ -1438,6 +1521,57 @@ function serializeUser(user) {
   };
 }
 
+/** 队列/当前歌曲广播字段：不含 url/lrc，歌词与播放地址由客户端按需拉取 */
+function serializeQueueItemForRoom(item) {
+  if (!item) return null;
+  return {
+    queueId: item.queueId,
+    id: item.id,
+    source: item.source || 'netease',
+    name: item.name,
+    artist: item.artist,
+    album: item.album,
+    pic: item.pic,
+    duration: item.duration,
+    requestedBy: item.requestedBy,
+    requestedById: item.requestedById,
+    addedAt: item.addedAt,
+    likedByIds: Array.isArray(item.likedByIds) ? item.likedByIds : [],
+    ownerPriority: item.ownerPriority || 0,
+  };
+}
+
+/** 随机预取等待歌曲等无 queueId 的元数据（不含 url/lrc/raw） */
+function serializeSongMeta(item) {
+  if (!item) return null;
+  if (item.queueId) return serializeQueueItemForRoom(item);
+  return {
+    id: item.id,
+    source: item.source || 'netease',
+    name: item.name,
+    artist: item.artist,
+    album: item.album,
+    pic: item.pic,
+    duration: item.duration,
+  };
+}
+
+function serializeSongHistoryForClient(item) {
+  if (!item) return null;
+  return {
+    id: item.id,
+    source: item.source || 'netease',
+    name: item.name,
+    artist: item.artist,
+    album: item.album,
+    pic: item.pic,
+    duration: item.duration,
+    requestedBy: item.requestedBy,
+    requestedById: item.requestedById,
+    requestedAt: item.requestedAt,
+  };
+}
+
 function getMessagesForUser(room, userId) {
   if (!userId) return room.messages;
   const user = room.users.get(userId);
@@ -1445,6 +1579,67 @@ function getMessagesForUser(room, userId) {
     return room.messages.filter((message) => message.timestamp >= user.chatVisibleSince);
   }
   return room.messages;
+}
+
+/** 分页拉取聊天历史（join 初始 100 条，上滑每次 50 条） */
+export function getChatHistoryForUser(roomId, userId, options = {}) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+
+  const limit = Math.min(Math.max(Number(options.limit) || CHAT_PAGE_LIMIT, 1), INITIAL_CHAT_LIMIT);
+  const beforeTimestamp = Number(options.before) || 0;
+  const beforeId = String(options.beforeId || '').trim();
+  const all = getMessagesForUser(room, userId);
+
+  if (beforeTimestamp > 0 || beforeId) {
+    let endIndex = all.length;
+    if (beforeId) {
+      const idx = all.findIndex((message) => message.id === beforeId);
+      if (idx >= 0) endIndex = idx;
+    } else {
+      const idx = all.findIndex((message) => message.timestamp >= beforeTimestamp);
+      if (idx >= 0) endIndex = idx;
+    }
+
+    const older = all.slice(0, endIndex);
+    const messages = older.slice(-limit).map(serializeChatMessage);
+    return { messages, hasMore: older.length > limit };
+  }
+
+  const messages = all.slice(-limit).map(serializeChatMessage);
+  return { messages, hasMore: all.length > limit };
+}
+
+/** 按需拉取点歌历史（不随 room_update 广播，不含 url/lrc） */
+export function getSongHistory(roomId, options = {}) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+
+  const limit = Math.min(Math.max(Number(options.limit) || MAX_SONG_HISTORY, 1), MAX_SONG_HISTORY);
+  const songs = (room.songHistory || [])
+    .slice(0, limit)
+    .map(serializeSongHistoryForClient)
+    .filter(Boolean);
+  return { songs };
+}
+
+/** 房主上报歌词/媒体推算的时长，供服务端自动切歌（不广播 room_update） */
+export function reportTrackDuration(roomId, userId, queueId, durationMs, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room?.current) return { error: '无当前歌曲' };
+  if (!isOwnerConnection(room, userId, connectionId)) return { error: '仅房主可上报时长' };
+
+  const expectedQueueId = String(queueId || '');
+  if (expectedQueueId && room.current.queueId !== expectedQueueId) {
+    return { success: true, skipped: true };
+  }
+
+  const ms = Number(durationMs);
+  if (!Number.isFinite(ms) || ms <= 0) return { error: '时长无效' };
+
+  room.current.duration = Math.round(ms);
+  persistRoom(room);
+  return { success: true };
 }
 
 function serializeRoom(room, options = {}) {
@@ -1462,17 +1657,15 @@ function serializeRoom(room, options = {}) {
     ownerId: room.ownerId,
     creatorId: room.creatorId ?? null,
     ownerConnectionId: room.ownerConnectionId,
-    queue: room.queue,
-    current: room.current,
+    queue: room.queue.map(serializeQueueItemForRoom).filter(Boolean),
+    current: serializeQueueItemForRoom(room.current),
     isPlaying: room.isPlaying,
     currentTime: getPlaybackTime(room),
     users: Array.from(room.users.values()).map(serializeUser),
     userCount: room.users.size,
     jumpRequests: room.jumpRequests,
     skipRequests: room.skipRequests,
-    messages: getMessagesForUser(room, options.forUserId),
     chatVisibleSince: forUser?.chatVisibleSince ?? null,
-    songHistory: room.songHistory || [],
     randomLoading: Boolean(room.randomLoading),
   };
 }
