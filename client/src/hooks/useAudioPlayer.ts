@@ -27,7 +27,7 @@ import {
   isRestrictedAutoplayEnv,
   type PlayResult,
 } from '../lib/audioUnlock';
-import { prefetchQueueSongs, rememberSongUrl, resolveSongUrl } from '../lib/songPreloadCache';
+import { prefetchQueueSongs, rememberSongUrl, resolveSongUrl, isTrackSourceError } from '../lib/songPreloadCache';
 import { waitForAudioMinimumReady } from '../lib/audioReady';
 import { applyFollowerSync, applyVisibilityResume, applyPostBufferSync } from '../lib/playbackSync';
 import { getClientPlaybackState, optimisticSeekPosition } from '../lib/playbackState';
@@ -238,13 +238,13 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     });
   }, [controller, tvMode, applyPlaybackResult, setNeedsAudioUnlock]);
 
-  const requestSkip = useCallback(() => {
+  const requestSkip = useCallback((options: { bypassThrottle?: boolean } = {}) => {
     if (skippingRef.current) return;
     const { isOwner, room: live } = useRoomStore.getState();
     if (!isOwner) return;
 
     const now = Date.now();
-    if (now - lastSkipAt.current < 2000) return;
+    if (!options.bypassThrottle && now - lastSkipAt.current < 2000) return;
     lastSkipAt.current = now;
 
     skippingRef.current = true;
@@ -345,7 +345,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
         markAudioSessionUnlocked();
         useAudioStore.getState().setNeedsAudioUnlock(false);
         const live = useRoomStore.getState().room;
-        if (live?.queue.length) prefetchQueueSongs(live.queue);
+        if (live?.queue.length) {
+          const liveCurrent = useRoomStore.getState().room?.current;
+          prefetchQueueSongs(live.queue, { current: liveCurrent });
+        }
       });
 
       audio.addEventListener('loadedmetadata', () => {
@@ -446,6 +449,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     }
 
     if (readyTrackKey.current === trackKey) {
+      return;
+    }
+
+    if (isTrackSourceError(current)) {
+      setTrackLoading(false);
+      if (useRoomStore.getState().isOwner) {
+        requestSkip({ bypassThrottle: true });
+      }
       return;
     }
 
@@ -551,7 +562,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
         }
 
         const liveQueue = useRoomStore.getState().room?.queue;
-        if (liveQueue?.length) prefetchQueueSongs(liveQueue);
+        const liveCurrent = useRoomStore.getState().room?.current;
+        if (liveQueue?.length) prefetchQueueSongs(liveQueue, { current: liveCurrent });
       } catch (err) {
         console.error('Failed to load song:', err);
         if (gen !== loadGeneration.current) return;
@@ -783,7 +795,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     const queue = room?.queue;
     if (!current || !queue?.length) return;
     if (readyTrackKey.current !== trackKeyOf(current)) return;
-    prefetchQueueSongs(queue);
+    prefetchQueueSongs(queue, { current });
   }, [room?.queue, room?.current?.queueId, room?.current?.id, room?.current?.source]);
 
   useEffect(() => {

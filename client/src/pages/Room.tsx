@@ -40,6 +40,7 @@ import PlaylistImportModal from '../components/PlaylistImportModal';
 import NeteaseToplistModal from '../components/NeteaseToplistModal';
 import ChatPanel from '../components/ChatPanel';
 import HotSongPanel from '../components/HotSongPanel';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 
 import JumpRequestBanner from '../components/JumpRequestBanner';
 import Toast from '../components/Toast';
@@ -136,7 +137,7 @@ export default function Room() {
 
   const roomPassword = (location.state as { password?: string } | null)?.password || getStoredRoomPassword(roomId);
 
-  const { room, showPlayer, setShowPlayer, isOwner, exitReason } = useRoomStore();
+  const { room, showPlayer, setShowPlayer, isOwner, mySocketId, exitReason } = useRoomStore();
 
   const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock } = useSocket();
   const { applyFavorites } = useFavorites();
@@ -170,6 +171,7 @@ export default function Room() {
   const [playlistSearchTotal, setPlaylistSearchTotal] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [hotRefreshKey, setHotRefreshKey] = useState(0);
+  const isLgUp = useMediaQuery('(min-width: 1024px)');
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [songHistoryOpen, setSongHistoryOpen] = useState(false);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
@@ -190,6 +192,8 @@ export default function Room() {
   }, []);
 
   const closeToast = useCallback(() => setToast(null), []);
+
+  const isCreator = Boolean(room?.creatorId && mySocketId && room.creatorId === mySocketId);
 
   const openRenameModal = useCallback(() => {
     if (!room) return;
@@ -802,7 +806,7 @@ export default function Room() {
 
                 </h1>
 
-                {isOwner && (
+                {isCreator && (
                   <>
                     <button
                       type="button"
@@ -823,7 +827,7 @@ export default function Room() {
                   </>
                 )}
 
-                {!isOwner && (room.isLocked || room.hasPassword) && (
+                {!isCreator && (room.isLocked || room.hasPassword) && (
                   <span className="flex-shrink-0 text-amber-400/90" title={room.hasPassword ? '密码房' : '已上锁'}>
                     <Lock className="w-3.5 h-3.5" />
                   </span>
@@ -937,16 +941,20 @@ export default function Room() {
 
         <div className="flex flex-col lg:grid lg:grid-cols-[240px_1fr_300px] lg:h-full lg:min-h-0 gap-3 lg:gap-4">
 
-          {/* 点歌热榜 — 桌面左侧 */}
-          <div className="hidden lg:flex flex-col order-0 lg:min-h-0 lg:overflow-hidden">
-            <HotSongPanel addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} />
-          </div>
+          {/* 点歌热榜 — 桌面左侧（仅 lg 挂载，避免与手机版重复请求） */}
+          {isLgUp && (
+            <div className="flex flex-col order-0 lg:min-h-0 lg:overflow-hidden">
+              <HotSongPanel addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} />
+            </div>
+          )}
 
           {/* 点歌搜索 — 中间；手机端热榜在上方 */}
           <div className="min-w-0 order-1 flex flex-col lg:min-h-0 lg:h-full lg:overflow-hidden">
-            <div className="lg:hidden mb-3">
-              <HotSongPanel compact addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} />
-            </div>
+            {!isLgUp && (
+              <div className="mb-3">
+                <HotSongPanel compact addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} />
+              </div>
+            )}
 
             <div className="flex-shrink-0">
               <JumpRequestBanner />

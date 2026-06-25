@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Trash2, Music, Zap, ThumbsUp } from 'lucide-react';
+import { Trash2, Music, Zap, ThumbsUp, AlertTriangle } from 'lucide-react';
 import { getClientId } from '../lib/clientId';
+import { isTrackSourceError } from '../lib/songPreloadCache';
+import { useSourceErrorRevision } from '../hooks/useSongSourceError';
 import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import SongCover from './SongCover';
@@ -25,6 +27,7 @@ export default function QueuePanel({ fillHeight = false }: Props) {
   const { removeSong, requestJump, toggleQueueLike } = useSocket();
   const [jumpMsg, setJumpMsg] = useState('');
   const currentRef = useRef<HTMLDivElement>(null);
+  useSourceErrorRevision();
 
   const allSongs = useMemo(() => {
     if (!room) return [];
@@ -97,6 +100,7 @@ export default function QueuePanel({ fillHeight = false }: Props) {
           const likedByMe = Boolean(myUserId && likedByIds.includes(myUserId));
           const canJump = !song.isCurrent && (isOwner || isMine);
           const canRemove = !song.isCurrent && (isOwner || isMine);
+          const hasSourceError = isTrackSourceError(song);
 
           return (
             <div
@@ -136,6 +140,15 @@ export default function QueuePanel({ fillHeight = false }: Props) {
                   >
                     {song.name}
                   </p>
+                  {hasSourceError && (
+                    <span
+                      className="inline-flex flex-shrink-0 items-center gap-0.5 rounded-md border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium leading-tight text-red-400 max-w-[9rem] sm:max-w-none"
+                      title="歌曲源异常，将跳过此歌"
+                    >
+                      <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                      <span className="truncate sm:whitespace-nowrap">歌曲源异常，将跳过此歌</span>
+                    </span>
+                  )}
                   {Boolean(song.ownerPriority) && (
                     <span className="rounded-full bg-amber-400/15 px-1.5 py-0 text-[9px] leading-4 text-amber-300">房主</span>
                   )}

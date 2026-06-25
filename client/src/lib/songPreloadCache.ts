@@ -8,6 +8,49 @@ const URL_CACHE_STORAGE_KEY = 'openmusic:song-url-cache';
 
 const urlCache = loadUrlCacheFromStorage();
 const pendingFetches = new Map<string, Promise<string | null>>();
+const sourceErrorKeys = new Set<string>();
+const sourceErrorListeners = new Set<() => void>();
+
+function notifySourceErrors() {
+  sourceErrorListeners.forEach((listener) => listener());
+}
+
+export function subscribeSourceErrors(listener: () => void) {
+  sourceErrorListeners.add(listener);
+  return () => {
+    sourceErrorListeners.delete(listener);
+  };
+}
+
+export function isTrackSourceError(song: Pick<QueueItem, 'queueId' | 'id' | 'source'>): boolean {
+  return sourceErrorKeys.has(trackKeyOf(song));
+}
+
+function markTrackSourceError(song: Pick<QueueItem, 'queueId' | 'id' | 'source'>) {
+  const key = trackKeyOf(song);
+  if (sourceErrorKeys.has(key)) return;
+  sourceErrorKeys.add(key);
+  notifySourceErrors();
+}
+
+function clearTrackSourceError(song: Pick<QueueItem, 'queueId' | 'id' | 'source'>) {
+  const key = trackKeyOf(song);
+  if (!sourceErrorKeys.delete(key)) return;
+  notifySourceErrors();
+}
+
+/** 移除已不在播放列表中的源错误标记，避免 Set 无限增长 */
+export function pruneSourceErrors(activeSongs: Array<Pick<QueueItem, 'queueId' | 'id' | 'source'>>) {
+  const activeKeys = new Set(activeSongs.map(trackKeyOf));
+  let changed = false;
+  for (const key of sourceErrorKeys) {
+    if (!activeKeys.has(key)) {
+      sourceErrorKeys.delete(key);
+      changed = true;
+    }
+  }
+  if (changed) notifySourceErrors();
+}
 
 function loadUrlCacheFromStorage(): Map<string, string> {
   try {
@@ -73,11 +116,16 @@ async function fetchSongUrl(
           if (attempt === 1) throw new Error('fetch failed');
         }
       }
-      if (!url) return null;
+      if (!url) {
+        markTrackSourceError(song);
+        return null;
+      }
+      clearTrackSourceError(song);
       urlCache.set(key, url);
       trimUrlCache();
       return url;
     } catch {
+      markTrackSourceError(song);
       return null;
     } finally {
       pendingFetches.delete(pendingKey);
@@ -110,10 +158,16 @@ export function prefetchCurrentSong(song: QueueItem | null | undefined) {
 
 export function prefetchQueueSongs(
   queue: QueueItem[],
-  options: { count?: number } = {},
+  options: { count?: number; current?: QueueItem | null } = {},
 ) {
   const count = options.count ?? DEFAULT_PREFETCH_COUNT;
   const targets = queue.slice(0, isMobileDevice() ? 1 : count);
+
+  if (options.current) {
+    pruneSourceErrors([options.current, ...queue]);
+  } else {
+    pruneSourceErrors(queue);
+  }
 
   for (const song of targets) {
     void fetchSongUrl(song);

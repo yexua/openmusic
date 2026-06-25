@@ -72,7 +72,14 @@ export async function getSongUrl(song: Pick<Song, 'id' | 'source' | 'url'>): Pro
   return toSecureMediaUrl(url);
 }
 
-export async function getLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>): Promise<string> {
+const lyricsInflight = new Map<string, Promise<string>>();
+
+function lyricsRequestKey(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>) {
+  const source = song.source || 'netease';
+  return `${source}:${song.id}:${song.lrc ?? ''}:${song.name ?? ''}`;
+}
+
+async function fetchLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>): Promise<string> {
   const source = song.source || 'netease';
   let lrc = '';
 
@@ -90,6 +97,18 @@ export async function getLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name
   }
 
   return lrc;
+}
+
+export async function getLyrics(song: Pick<Song, 'id' | 'source' | 'lrc' | 'name'>): Promise<string> {
+  const key = lyricsRequestKey(song);
+  const inflight = lyricsInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = fetchLyrics(song).finally(() => {
+    lyricsInflight.delete(key);
+  });
+  lyricsInflight.set(key, promise);
+  return promise;
 }
 
 export function getCoverUrl(
@@ -227,10 +246,32 @@ export async function checkRoom(id: string): Promise<RoomCheckResult> {
   return { exists: true, hasPassword: Boolean(data.hasPassword), name: data.name };
 }
 
+const HOT_SONGS_CACHE_TTL_MS = 30_000;
+const hotSongsCache = new Map<number, { data: HotSongItem[]; expires: number }>();
+const hotSongsInflight = new Map<number, Promise<HotSongItem[]>>();
+
 export async function getHotSongs(limit = 15): Promise<HotSongItem[]> {
-  const res = await fetchWithTimeout(`/api/music/hot?limit=${limit}`);
-  if (!res.ok) throw new Error('获取热榜失败');
-  return res.json();
+  const now = Date.now();
+  const cached = hotSongsCache.get(limit);
+  if (cached && cached.expires > now) {
+    return cached.data;
+  }
+
+  const inflight = hotSongsInflight.get(limit);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const res = await fetchWithTimeout(`/api/music/hot?limit=${limit}`);
+    if (!res.ok) throw new Error('获取热榜失败');
+    const data: HotSongItem[] = await res.json();
+    hotSongsCache.set(limit, { data, expires: Date.now() + HOT_SONGS_CACHE_TTL_MS });
+    return data;
+  })().finally(() => {
+    hotSongsInflight.delete(limit);
+  });
+
+  hotSongsInflight.set(limit, promise);
+  return promise;
 }
 
 export async function getAvailableSources(): Promise<MusicProviderMeta[]> {

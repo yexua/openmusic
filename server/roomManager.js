@@ -531,10 +531,14 @@ function isQueueRequester(item, socketId, user) {
   return item.requestedById === socketId || item.requestedBy === user?.nickname;
 }
 
+function isRoomCreator(room, userId) {
+  return Boolean(room?.creatorId && userId === room.creatorId);
+}
+
 export function renameRoom(roomId, actorId, name, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
-  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可修改房间名' };
+  if (!isRoomCreator(room, actorId)) return { error: '仅房间创建者可修改房间名' };
 
   room.name = normalizeRoomName(name, room.id);
   persistRoom(room);
@@ -545,7 +549,7 @@ export function renameRoom(roomId, actorId, name, connectionId = null) {
 export function setRoomLock(roomId, actorId, options = {}, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
-  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可设置房间锁' };
+  if (!isRoomCreator(room, actorId)) return { error: '仅房间创建者可设置房间锁' };
 
   const locked = Boolean(options.locked);
   if (!locked) {

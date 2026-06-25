@@ -100,6 +100,10 @@ const io = new Server(httpServer, {
     origin: corsOrigin,
     methods: ['GET', 'POST'],
   },
+  perMessageDeflate: {
+    threshold: 1024,
+  },
+  httpCompression: true,
 });
 
 app.use(cors({ origin: corsOrigin }));
@@ -840,7 +844,7 @@ io.on('connection', (socket) => {
     const joinInternal = getRoomInternal(id);
     const playbackState = joinInternal ? buildPlaybackState(joinInternal) : null;
 
-    io.to(id).emit('room_update', roomPayload);
+    socket.to(id).emit('room_update', roomPayload);
     callback?.({
       success: true,
       room: roomPayload,
