@@ -18,6 +18,7 @@ import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import { useFavorites } from '../hooks/useFavorites';
 import { createRandomNickname } from '../lib/randomNickname';
+import { usePageSeo } from '../lib/seo';
 
 import { songKey } from '../api/music';
 import SongCover from '../components/SongCover';
@@ -139,6 +140,15 @@ export default function Room() {
   const roomPassword = (location.state as { password?: string } | null)?.password || getStoredRoomPassword(roomId);
 
   const { room, showPlayer, setShowPlayer, isOwner, mySocketId, exitReason } = useRoomStore();
+
+  usePageSeo({
+    title: room?.name ? `${room.name} 房间` : '正在加入房间',
+    description: room?.current
+      ? `正在播放「${room.current.name}」— 加入 ${room.name} 多人同步听歌、点歌、聊天`
+      : '多人实时同步听歌、搜索点歌、歌词滚动、房间聊天',
+    path: roomId ? `/room/${roomId}` : undefined,
+    noindex: true,
+  });
 
   const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, loadSongHistory } = useSocket();
   const { applyFavorites } = useFavorites();
@@ -803,7 +813,7 @@ export default function Room() {
 
       <header className="glass flex-shrink-0 z-30 border-b border-netease-border/50 px-3 sm:px-4 py-2.5 sm:py-3 safe-top">
 
-        <div className="max-w-[1480px] mx-auto flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="max-w-[1680px] mx-auto flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
 
           <div className="flex items-center justify-between gap-2 min-w-0">
 
@@ -948,17 +958,17 @@ export default function Room() {
 
 
 
-      <div className="flex-1 min-h-0 max-w-[1480px] mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 min-h-0 max-w-[1680px] mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] overflow-y-auto lg:overflow-hidden">
 
-        <div className="flex flex-col lg:grid lg:grid-cols-[280px_minmax(0,1fr)_280px] lg:h-full lg:min-h-0 gap-3 lg:gap-4">
+        <div className="flex flex-col lg:grid lg:grid-cols-[400px_minmax(0,1fr)_420px] lg:h-full lg:min-h-0 gap-3 lg:gap-4">
 
           {/* 左侧：点歌热榜 + 为你推荐 */}
           {isLgUp && (
-            <div className="order-0 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-netease-border/50 bg-netease-card/30 lg:h-full lg:grid lg:grid-rows-[minmax(0,28%)_minmax(0,1fr)]">
-              <div className="flex min-h-0 flex-col overflow-hidden border-b border-netease-border/50">
-                <HotSongPanel embedded addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} limit={6} />
+            <div className="order-0 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-netease-border/50 bg-netease-card/30 lg:h-full">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-netease-border/50">
+                <HotSongPanel embedded addingId={addingId} onAdd={handleAdd} refreshKey={hotRefreshKey} />
               </div>
-              <div className="flex min-h-0 flex-col overflow-hidden">
+              <div className="flex flex-shrink-0 flex-col overflow-hidden">
                 <RecommendedPlaylistsPanel onSelectPlaylist={handleRecommendPlaylistSelect} />
               </div>
             </div>

@@ -49,6 +49,12 @@ for (const file of getServerFiles()) {
 }
 
 copyDir(path.join(root, 'client', 'dist'), path.join(outDir, 'client', 'dist'));
+
+const clientEnvExample = path.join(root, 'client', '.env.example');
+if (fs.existsSync(clientEnvExample)) {
+  fs.copyFileSync(clientEnvExample, path.join(outDir, 'client', '.env.example'));
+}
+
 copyDir(path.join(root, 'deploy'), path.join(outDir, 'deploy'));
 
 fs.writeFileSync(
@@ -61,6 +67,10 @@ fs.writeFileSync(
 4. npm install --production
 5. pm2 start ../deploy/ecosystem.config.cjs
 6. 宝塔 Nginx 参考 deploy/nginx.conf.example 配置反向代理
+
+前端 SEO（可选）：
+- 若需重新构建前端并生成 sitemap，见 client/.env.example
+- 本包已含构建好的 client/dist，一般无需再配
 
 详细说明见 deploy/DEPLOY-BAOTA.md
 `,

@@ -16,6 +16,7 @@ import VinylPlayer from '../components/VinylPlayer';
 import SongInfoPanel from '../components/SongInfoPanel';
 import ProgressBar from '../components/ProgressBar';
 import AudioEngine from '../components/AudioEngine';
+import { usePageSeo } from '../lib/seo';
 
 function getStoredRoomPassword(roomId: string | undefined) {
   if (!roomId) return undefined;
@@ -38,6 +39,13 @@ export default function TvDisplay() {
   const [bgLoaded, setBgLoaded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  usePageSeo({
+    title: room?.name ? `${room.name} 电视歌词` : '电视歌词模式',
+    description: '大屏歌词与封面展示，实时同步房间播放进度，适合投屏观看。',
+    path: roomId ? `/tv/${roomId}` : undefined,
+    noindex: true,
+  });
 
   useEffect(() => {
     const syncFullscreen = () => {

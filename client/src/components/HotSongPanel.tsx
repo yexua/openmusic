@@ -42,6 +42,8 @@ function TruncateWithTip({ text, className }: { text: string; className?: string
   );
 }
 
+const HOT_SONG_LIST_LIMIT = 15;
+
 export default function HotSongPanel({
   addingId,
   onAdd,
@@ -50,7 +52,7 @@ export default function HotSongPanel({
   embedded = false,
   limit,
 }: Props) {
-  const fetchLimit = limit ?? (compact ? 8 : embedded ? 8 : 15);
+  const fetchLimit = limit ?? HOT_SONG_LIST_LIMIT;
   const [songs, setSongs] = useState<HotSongItem[]>([]);
   const [loading, setLoading] = useState(true);
 

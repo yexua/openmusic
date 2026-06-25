@@ -9,6 +9,7 @@ import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import type { RoomSummary } from '../types';
 import { createRandomNickname } from '../lib/randomNickname';
+import { usePageSeo } from '../lib/seo';
 
 function GiteeIcon({ className }: { className?: string }) {
   return (
@@ -161,6 +162,12 @@ export default function Home() {
   const navigate = useNavigate();
   const { nickname, setNickname } = useRoomStore();
   const { leaveRoom } = useSocket();
+
+  usePageSeo({
+    title: '房间大厅',
+    description: '创建或加入 OpenMusic 点歌房间，与好友实时同步听歌、搜索点歌、查看歌词。',
+    path: '/',
+  });
 
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
@@ -375,7 +382,10 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">房间大厅</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">
+                <span className="sr-only">OpenMusic 在线点歌 - </span>
+                房间大厅
+              </h1>
               <p className="text-sm text-white/40">选择一个房间加入，或创建你自己的</p>
             </div>
             <button

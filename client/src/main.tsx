@@ -5,9 +5,11 @@ import App from './App';
 import './index.css';
 import { installOpenMusicDebug } from './lib/debugTools';
 import { installVisibilitySync } from './lib/visibilitySync';
+import { applyPageSeo } from './lib/seo';
 
 installOpenMusicDebug();
 installVisibilitySync();
+applyPageSeo();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

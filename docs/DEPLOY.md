@@ -74,6 +74,16 @@ REDIS_URL=redis://127.0.0.1:6379/0
 
 生产环境由 **同一 Node 进程** 托管 API、WebSocket 与 `client/dist` 静态资源。
 
+### SEO（可选）
+
+构建前端时在 `client/.env.production` 中设置公开访问域名（可复制 `client/.env.example` 后改名）：
+
+```env
+VITE_SITE_URL=https://your-domain.com
+```
+
+未设置时：页面 `canonical`、Open Graph 等标签使用**浏览器当前访问域名**；不生成 `sitemap.xml`。
+
 ```bash
 npm run install:all
 npm run build
