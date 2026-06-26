@@ -29,6 +29,8 @@ import QueuePanel from '../components/QueuePanel';
 
 import MiniPlayer from '../components/MiniPlayer';
 
+import RoomAmbientBackground from '../components/RoomAmbientBackground';
+
 import PlayerPage from '../components/PlayerPage';
 
 import OnlineUsers from '../components/OnlineUsers';
@@ -974,7 +976,9 @@ export default function Room() {
 
   return (
 
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="relative isolate flex h-full flex-col overflow-hidden">
+
+      <RoomAmbientBackground song={room.current} />
 
       <AudioEngine />
 
@@ -1009,7 +1013,7 @@ export default function Room() {
         onClose={handleCloseAnnouncementPopup}
       />
 
-      <header className="glass flex-shrink-0 z-30 border-b border-netease-border/50 px-3 sm:px-4 py-2.5 sm:py-3 safe-top">
+      <header className="relative z-30 flex-shrink-0 border-b border-white/10 bg-black/20 px-3 py-2.5 backdrop-blur-xl sm:px-4 sm:py-3 safe-top [-webkit-backdrop-filter:blur(24px)]">
 
         <div className="max-w-[1680px] mx-auto flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
 
@@ -1217,7 +1221,7 @@ export default function Room() {
 
 
 
-      <div className="flex-1 min-h-0 max-w-[1680px] mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] overflow-y-auto lg:overflow-hidden">
+      <div className="relative z-10 flex-1 min-h-0 max-w-[1680px] mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] overflow-y-auto lg:overflow-hidden">
 
         <div className="flex flex-col lg:grid lg:grid-cols-[360px_minmax(0,1fr)_360px] lg:h-full lg:min-h-0 gap-3 lg:gap-4">
 

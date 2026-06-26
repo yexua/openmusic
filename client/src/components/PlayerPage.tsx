@@ -21,6 +21,7 @@ import ProgressBar from './ProgressBar';
 import Tooltip from './Tooltip';
 import VolumeControl from './VolumeControl';
 import FavoriteButton from './FavoriteButton';
+import AmbientCoverLayers from './AmbientCoverLayers';
 
 
 
@@ -42,8 +43,6 @@ export default function PlayerPage({ onClose }: Props) {
   const seekPlayback = useAudioStore((s) => s.seekPlayback);
   const localPlayback = useAudioStore((s) => s.localPlayback);
   const { togglePlay, skipSong, requestSkip } = useSocket();
-
-  const [bgLoaded, setBgLoaded] = useState(false);
 
   const [skipError, setSkipError] = useState('');
   const [skipMsg, setSkipMsg] = useState('');
@@ -112,38 +111,13 @@ export default function PlayerPage({ onClose }: Props) {
 
   const coverUrl = getCoverUrl(current, 'medium');
 
-
-
   return (
 
     <div className="fixed inset-0 z-[60] flex flex-col animate-fade-in overflow-hidden isolate">
 
-      {/* 不透底层，完全挡住点歌页 */}
-      <div className="absolute inset-0 bg-[#0d0d0d]" aria-hidden />
+      <AmbientCoverLayers coverUrl={coverUrl} />
 
-      <div
-        className="absolute inset-0 bg-cover bg-center scale-110 opacity-30"
-        style={{
-          backgroundImage: bgLoaded ? `url(${coverUrl})` : undefined,
-          filter: 'blur(48px) saturate(1.15)',
-        }}
-        aria-hidden
-      />
-
-      <img src={coverUrl} alt="" className="hidden" onLoad={() => setBgLoaded(true)} loading="eager" decoding="async" />
-
-      {/* 全屏毛玻璃 */}
-      <div
-        className="absolute inset-0 bg-[#141414]/90 backdrop-blur-[40px] [-webkit-backdrop-filter:blur(40px)]"
-        aria-hidden
-      />
-
-      <div
-        className="absolute inset-0 bg-gradient-to-b from-white/[0.05] via-transparent to-black/50 pointer-events-none"
-        aria-hidden
-      />
-
-      <header className="relative z-10 flex items-center px-3 py-2 sm:px-4 sm:py-3 2xl:px-8 2xl:py-6 flex-shrink-0">
+      <header className="relative z-10 flex items-center px-3 py-2 sm:px-4 sm:py-3 2xl:px-8 2xl:py-6 flex-shrink-0 safe-top">
 
         <button
 
@@ -207,7 +181,7 @@ export default function PlayerPage({ onClose }: Props) {
 
 
 
-      <footer className="relative z-10 px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-3 flex-shrink-0 2xl:px-12 2xl:pb-12 2xl:pt-6">
+      <footer className="relative z-10 px-4 pt-2 sm:px-6 sm:pt-3 flex-shrink-0 2xl:px-12 2xl:pt-6 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] 2xl:pb-[max(3rem,env(safe-area-inset-bottom,0px))]">
 
         <div className="mb-1.5 sm:mb-2 flex justify-between text-xs sm:text-sm 2xl:text-xl text-white/50">
 

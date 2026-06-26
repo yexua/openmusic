@@ -1,82 +1,23 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
+import type { PlaylistPlatform, PlaylistSearchItem } from '../api/music/playlist';
 import {
-  fetchNeteasePlaylistMetas,
-  searchNeteasePlaylists,
-  searchTencentPlaylists,
-  type PlaylistPlatform,
-  type PlaylistSearchItem,
-} from '../api/music/playlist';
-
-const CURATED_NETEASE: PlaylistSearchItem[] = [
-  {
-    id: '3778678',
-    platform: 'netease',
-    name: '云音乐热歌榜',
-    coverImgUrl: 'https://p1.music.126.net/0SUEG8yDACfx0Bw2MYFv4Q==/109951170048519512.jpg',
-    trackCount: 0,
-    playCount: 0,
-  },
-  {
-    id: '19723756',
-    platform: 'netease',
-    name: '云音乐飙升榜',
-    coverImgUrl: 'https://p2.music.126.net/rIi7Qzy2i2Y_1QD7cd0MYA==/109951170048506929.jpg',
-    trackCount: 0,
-    playCount: 0,
-  },
-  {
-    id: '2250011882',
-    platform: 'netease',
-    name: '抖音排行榜',
-    coverImgUrl: 'https://p2.music.126.net/8sRm2fQNh_KZeWmJ1sRhQQ==/109951165611408950.jpg',
-    trackCount: 0,
-    playCount: 0,
-  },
-  {
-    id: '3779629',
-    platform: 'netease',
-    name: '云音乐新歌榜',
-    coverImgUrl: 'https://p1.music.126.net/5guhqPBTcIrrhLBotgaT6w==/109951170048511751.jpg',
-    trackCount: 0,
-    playCount: 0,
-  },
-];
-
-const CURATED_NETEASE_IDS = new Set(CURATED_NETEASE.map((item) => item.id));
-const NETEASE_RECOMMEND_KEYWORD = '推荐';
-const QQ_RECOMMEND_KEYWORD = '热歌';
-const NETEASE_EXTRA_LIMIT = 4;
-const QQ_EXTRA_LIMIT = 4;
+  CURATED_COUNT,
+  CURATED_NETEASE,
+  getRecommendedPlaylists,
+  getRecommendedPlaylistsFallback,
+  peekRecommendedPlaylists,
+} from '../lib/recommendedPlaylists';
 
 const PLATFORM_LABELS: Record<PlaylistPlatform, string> = {
   netease: '网易',
   qq: 'QQ',
 };
 
-const CURATED_COUNT = CURATED_NETEASE.length;
+const NETEASE_EXTRA_LIMIT = 4;
 
 function playlistKey(playlist: PlaylistSearchItem) {
   return `${playlist.platform}-${playlist.id}`;
-}
-
-function mergePlaylistMeta(
-  base: PlaylistSearchItem[],
-  meta: PlaylistSearchItem[],
-): PlaylistSearchItem[] {
-  const metaMap = new Map(meta.map((item) => [item.id, item]));
-  return base.map((item) => {
-    const remote = metaMap.get(item.id);
-    if (!remote) return item;
-    return {
-      ...item,
-      name: remote.name || item.name,
-      coverImgUrl: remote.coverImgUrl || item.coverImgUrl,
-      creatorName: remote.creatorName || item.creatorName,
-      trackCount: remote.trackCount || item.trackCount,
-      playCount: remote.playCount || item.playCount,
-    };
-  });
 }
 
 interface Props {
@@ -232,39 +173,28 @@ function PlaylistCard({
 }
 
 export default function RecommendedPlaylistsPanel({ onSelectPlaylist, compact = false }: Props) {
-  const [neteasePlaylists, setNeteasePlaylists] = useState<PlaylistSearchItem[]>(CURATED_NETEASE);
-  const [qqPlaylists, setQqPlaylists] = useState<PlaylistSearchItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = peekRecommendedPlaylists();
+  const [neteasePlaylists, setNeteasePlaylists] = useState(
+    () => cached?.neteasePlaylists ?? CURATED_NETEASE,
+  );
+  const [qqPlaylists, setQqPlaylists] = useState(() => cached?.qqPlaylists ?? []);
+  const [loading, setLoading] = useState(() => !cached);
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      setLoading(true);
+      if (!peekRecommendedPlaylists()) setLoading(true);
       try {
-        const [curatedMeta, neteaseSearch, qqSearch] = await Promise.all([
-          fetchNeteasePlaylistMetas(CURATED_NETEASE.map((item) => item.id)),
-          searchNeteasePlaylists(NETEASE_RECOMMEND_KEYWORD, 1, NETEASE_EXTRA_LIMIT + 4),
-          searchTencentPlaylists(QQ_RECOMMEND_KEYWORD, 1, QQ_EXTRA_LIMIT + 4),
-        ]);
+        const data = await getRecommendedPlaylists();
         if (cancelled) return;
-
-        const curated = mergePlaylistMeta(CURATED_NETEASE, curatedMeta);
-        const neteaseExtras = neteaseSearch.playlists
-          .filter((item) => !CURATED_NETEASE_IDS.has(item.id))
-          .slice(0, NETEASE_EXTRA_LIMIT)
-          .map((item) => ({ ...item, platform: 'netease' as const }));
-
-        const qqItems = qqSearch.playlists
-          .slice(0, QQ_EXTRA_LIMIT)
-          .map((item) => ({ ...item, platform: 'qq' as const }));
-
-        setNeteasePlaylists([...curated, ...neteaseExtras]);
-        setQqPlaylists(qqItems);
+        setNeteasePlaylists(data.neteasePlaylists);
+        setQqPlaylists(data.qqPlaylists);
       } catch {
-        if (!cancelled) {
-          setNeteasePlaylists(CURATED_NETEASE);
-          setQqPlaylists([]);
+        if (!cancelled && !peekRecommendedPlaylists()) {
+          const fallback = getRecommendedPlaylistsFallback();
+          setNeteasePlaylists(fallback.neteasePlaylists);
+          setQqPlaylists(fallback.qqPlaylists);
         }
       } finally {
         if (!cancelled) setLoading(false);
