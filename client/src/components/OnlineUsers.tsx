@@ -39,8 +39,13 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
   const [error, setError] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const visibleUsers = useMemo(
+    () => users.filter((user) => !user.readOnly),
+    [users],
+  );
+
   const orderedUsers = useMemo<DisplayUser[]>(() => {
-    const onlineIds = new Set(users.map((user) => user.id));
+    const onlineIds = new Set(visibleUsers.map((user) => user.id));
     const offlineAdmins: DisplayUser[] = adminIds
       .filter((id) => !onlineIds.has(id) && id !== creatorId)
       .map((id) => ({
@@ -50,7 +55,7 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
         offline: true,
       }));
 
-    return [...users.map((user) => ({ ...user, offline: false as const })), ...offlineAdmins].sort((a, b) => {
+    return [...visibleUsers.map((user) => ({ ...user, offline: false as const })), ...offlineAdmins].sort((a, b) => {
       if (a.id === mySocketId) return -1;
       if (b.id === mySocketId) return 1;
       if (creatorId) {
@@ -60,7 +65,7 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
       if (a.offline !== b.offline) return a.offline ? 1 : -1;
       return a.joinedAt - b.joinedAt;
     });
-  }, [users, mySocketId, creatorId, adminIds, userNicknames]);
+  }, [visibleUsers, mySocketId, creatorId, adminIds, userNicknames]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,7 +202,7 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
             </div>
           )}
         </div>
-        <span className="hidden sm:inline">共 {users.length} 人</span>
+        <span className="hidden sm:inline">共 {visibleUsers.length} 人</span>
         </button>
       </Tooltip>
 
@@ -206,7 +211,7 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
           <div className="mb-2 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium text-white">房间用户</h3>
-              <p className="text-[11px] text-netease-muted">共 {users.length} 人</p>
+              <p className="text-[11px] text-netease-muted">共 {visibleUsers.length} 人</p>
             </div>
             <button
               type="button"
@@ -270,11 +275,6 @@ export default function OnlineUsers({ users, creatorId, onNotice }: Props) {
                         {isAdmin && !isRoomCreator && (
                           <span className="flex-shrink-0 whitespace-nowrap rounded-full bg-sky-400/15 px-1.5 py-0 text-[9px] leading-4 text-sky-300">
                             管理员
-                          </span>
-                        )}
-                        {user.readOnly && (
-                          <span className="flex-shrink-0 whitespace-nowrap rounded-full bg-white/8 px-1.5 py-0 text-[9px] leading-4 text-netease-muted">
-                            TV
                           </span>
                         )}
                         {user.offline && (
