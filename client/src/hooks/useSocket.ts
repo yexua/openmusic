@@ -163,6 +163,7 @@ function rejoinLastRoom() {
         isAdmin?: boolean;
         canControlPlayback?: boolean;
         isPlaybackLeader?: boolean;
+        nickname?: string;
       } | undefined,
     ) => {
       rejoinInFlight = false;
@@ -172,6 +173,12 @@ function rejoinLastRoom() {
       applyJoinSnapshot(res.room, res.playbackState);
       applyJoinExtras(res.room, { messages: res.messages, chatHasMore: res.chatHasMore });
       rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
+      const resolvedNickname = res.nickname?.trim()
+        || res.room.users.find((user) => user.id === res.socketId)?.nickname?.trim();
+      if (resolvedNickname) {
+        useRoomStore.getState().setNickname(resolvedNickname);
+        lastJoinSession = { ...session, nickname: resolvedNickname };
+      }
       if (res.socketId) {
         useRoomStore.getState().setConnectionInfo(
           res.socketId,
@@ -356,6 +363,7 @@ if (!connected.current && !socketConnectRequested) {
         isOwner?: boolean;
         isAdmin?: boolean;
         isPlaybackLeader?: boolean;
+        nickname?: string;
       }>('join_room', joinPayload(session), { success: false, error: '连接超时，请检查网络' })
         .then((res) => {
           if (res.success && res.room) {
@@ -365,6 +373,13 @@ if (!connected.current && !socketConnectRequested) {
             applyJoinSnapshot(res.room, res.playbackState);
             applyJoinExtras(res.room, { messages: res.messages, chatHasMore: res.chatHasMore });
             rememberClientIdentity(res.clientId || res.socketId, res.clientToken);
+
+            const resolvedNickname = res.nickname?.trim()
+              || res.room.users.find((user) => user.id === res.socketId)?.nickname?.trim();
+            if (resolvedNickname) {
+              useRoomStore.getState().setNickname(resolvedNickname);
+              lastJoinSession = { ...session, nickname: resolvedNickname };
+            }
 
             if (res.socketId) {
               setConnectionInfo(
@@ -550,10 +565,13 @@ if (s.connected) {
       .then((res) => {
         if (res.success && res.room) {
           applyRoomSnapshot(res.room);
-          const nextNickname = nickname.trim();
-          useRoomStore.getState().setNickname(nextNickname);
+          const myUserId = useRoomStore.getState().mySocketId;
+          const resolvedNickname = (myUserId
+            ? res.room.users.find((user) => user.id === myUserId)?.nickname
+            : undefined)?.trim() || nickname.trim();
+          useRoomStore.getState().setNickname(resolvedNickname);
           if (lastJoinSession) {
-            lastJoinSession = { ...lastJoinSession, nickname: nextNickname };
+            lastJoinSession = { ...lastJoinSession, nickname: resolvedNickname };
           }
         }
         return res;

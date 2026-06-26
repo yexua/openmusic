@@ -836,6 +836,7 @@ io.on('connection', (socket) => {
     const joinInternal = getRoomInternal(id);
     const playbackState = joinInternal ? buildPlaybackState(joinInternal) : null;
 
+    const joinUser = joinInternal?.users.get(userId);
     socket.to(id).emit('room_update', roomPayload);
     callback?.({
       success: true,
@@ -847,6 +848,9 @@ io.on('connection', (socket) => {
       connectionId: socket.id,
       clientId: userId,
       clientToken: nextClientToken,
+      nickname: joinUser?.nickname
+        || roomPayload.users?.find((user) => user.id === userId)?.nickname
+        || String(nickname || '').trim(),
       isOwner: roomPayload.creatorId === userId,
       isAdmin: (roomPayload.adminIds || []).includes(userId),
       canControlPlayback: roomPayload.creatorId === userId || (roomPayload.adminIds || []).includes(userId),

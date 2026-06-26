@@ -91,10 +91,10 @@ export default function QueuePanel({ fillHeight = false }: Props) {
       >
         {allSongs.map((song, i) => {
           const myUserId = mySocketId || getClientId();
-          const isMine = !song.isCurrent && (
-            (myUserId && song.requestedById === myUserId)
-            || song.requestedBy === nickname
-          );
+          const isMine = !song.isCurrent && Boolean(myUserId && (
+            song.requestedById === myUserId
+            || (!song.requestedById && song.requestedBy === nickname)
+          ));
           const likedByIds = Array.isArray(song.likedByIds) ? song.likedByIds : [];
           const likeCount = likedByIds.length;
           const likedByMe = Boolean(myUserId && likedByIds.includes(myUserId));

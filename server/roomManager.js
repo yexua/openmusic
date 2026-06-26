@@ -565,9 +565,15 @@ export function addUser(roomId, userId, nickname, options = {}) {
     : Date.now();
   room.knownUserIds.add(userId);
 
+  const resolvedNickname = ensureUniqueNickname(
+    room,
+    userId,
+    normalizeNickname(nickname) || existing?.nickname || getDefaultNickname(room),
+  );
+
   room.users.set(userId, {
     id: userId,
-    nickname: normalizeNickname(nickname) || existing?.nickname || getDefaultNickname(room),
+    nickname: resolvedNickname,
     readOnly: Boolean(options.readOnly),
     joinedAt: existing?.joinedAt || Date.now(),
     connectionId: options.connectionId || null,
@@ -576,11 +582,7 @@ export function addUser(roomId, userId, nickname, options = {}) {
     chatVisibleSince,
   });
 
-  reassignOrphanQueueOwnership(
-    room,
-    userId,
-    normalizeNickname(nickname) || existing?.nickname || getDefaultNickname(room),
-  );
+  reassignOrphanQueueOwnership(room, userId, resolvedNickname);
 
   ensureCreatorId(room, userId);
   refreshRoomOwner(room, { preferCreator: room.creatorId === userId });
@@ -600,6 +602,31 @@ function normalizeNickname(nickname) {
   return String(nickname || '').trim().slice(0, 20);
 }
 
+function getUsedNicknames(room, excludeUserId = null) {
+  const used = new Set();
+  for (const user of room.users.values()) {
+    if (excludeUserId && user.id === excludeUserId) continue;
+    if (user.nickname) used.add(user.nickname);
+  }
+  return used;
+}
+
+/** 房间内昵称唯一；重名时后进入者在原名后追加 1、2、3… */
+function ensureUniqueNickname(room, userId, preferred) {
+  const base = normalizeNickname(preferred);
+  if (!base) return getDefaultNickname(room);
+
+  const used = getUsedNicknames(room, userId);
+  if (!used.has(base)) return base;
+
+  for (let suffix = 1; suffix < 1000; suffix += 1) {
+    const candidate = `${base}${suffix}`.slice(0, 20);
+    if (!used.has(candidate)) return candidate;
+  }
+
+  return `${base.slice(0, 14)}${Date.now().toString(36).slice(-5)}`.slice(0, 20);
+}
+
 function updateRequesterNickname(item, socketId, nickname) {
   if (item?.requestedById === socketId) {
     item.requestedBy = nickname;
@@ -610,21 +637,28 @@ function reassignOrphanQueueOwnership(room, userId, nickname) {
   const normalizedNick = normalizeNickname(nickname);
   if (!normalizedNick) return;
 
-  const activeUserIds = new Set(room.users.keys());
-  const reassignIfOrphan = (item) => {
-    if (!item || item.requestedBy !== normalizedNick) return;
-    if (item.requestedById === userId) return;
-    if (item.requestedById && activeUserIds.has(item.requestedById)) return;
-    item.requestedById = userId;
+  const reclaim = (item) => {
+    if (!item) return;
+    if (item.requestedById === userId) {
+      item.requestedBy = normalizedNick;
+      return;
+    }
+    if (item.requestedById) return;
+    if (item.requestedBy !== normalizedNick) return;
+    const owners = Array.from(room.users.values()).filter((user) => user.nickname === normalizedNick);
+    if (owners.length === 1 && owners[0].id === userId) {
+      item.requestedById = userId;
+    }
   };
 
-  reassignIfOrphan(room.current);
-  room.queue.forEach(reassignIfOrphan);
+  reclaim(room.current);
+  room.queue.forEach(reclaim);
 }
 
 function isQueueRequester(item, socketId, user) {
   if (!item) return false;
-  return item.requestedById === socketId || item.requestedBy === user?.nickname;
+  if (item.requestedById) return item.requestedById === socketId;
+  return item.requestedBy === user?.nickname;
 }
 
 function isRoomCreator(room, userId) {
@@ -772,7 +806,7 @@ export function renameUser(roomId, socketId, nickname) {
   const user = room.users.get(socketId);
   if (!user) return { error: '未加入房间' };
 
-  const nextNickname = normalizeNickname(nickname);
+  const nextNickname = ensureUniqueNickname(room, socketId, nickname);
   if (!nextNickname) return { error: '昵称不能为空' };
 
   user.nickname = nextNickname;
