@@ -43,6 +43,12 @@ import SearchFilterSelect from '../components/SearchFilterSelect';
 import PlaylistChannelFilter from '../components/PlaylistChannelFilter';
 import PageNumberPagination from '../components/PageNumberPagination';
 import SearchSkeleton, { RESULT_BODY_HEIGHT } from '../components/SearchSkeleton';
+import {
+  getStoredSongResultPageSize,
+  setStoredSongResultPageSize,
+  SONG_RESULT_PAGE_SIZE_OPTIONS,
+  type SongResultPageSize,
+} from '../lib/songResultPagination';
 import PlaylistImportModal from '../components/PlaylistImportModal';
 import ChatPanel from '../components/ChatPanel';
 import HotSongPanel from '../components/HotSongPanel';
@@ -141,7 +147,6 @@ function formatHistoryTime(time: number) {
   }
 }
 
-const PLAYLIST_SEARCH_PAGE_SIZE = 6;
 const FAVORITES_IMPORT_BATCH_SIZE = 500;
 const FAVORITES_PAGE_SIZE_OPTIONS = [15, 30, 50] as const;
 type FavoritesPageSize = (typeof FAVORITES_PAGE_SIZE_OPTIONS)[number];
@@ -154,6 +159,7 @@ interface PlaylistSearchBackup {
   page: number;
   total: number;
   channel: PlaylistChannelFilterMode;
+  pageSize: SongResultPageSize;
 }
 
 
@@ -207,6 +213,7 @@ export default function Room() {
   const [isPlaylistResults, setIsPlaylistResults] = useState(false);
   const [playlistSearchResults, setPlaylistSearchResults] = useState<PlaylistSearchItem[]>([]);
   const [playlistSearchPage, setPlaylistSearchPage] = useState(1);
+  const [playlistSearchPageSize, setPlaylistSearchPageSize] = useState<SongResultPageSize>(getStoredSongResultPageSize);
   const [playlistSearchTotal, setPlaylistSearchTotal] = useState(0);
   const [playlistChannelFilter, setPlaylistChannelFilter] = useState<PlaylistChannelFilterMode>('all');
   const [playlistSearchBackup, setPlaylistSearchBackup] = useState<PlaylistSearchBackup | null>(null);
@@ -538,7 +545,12 @@ export default function Room() {
     }
   }, [isPlaylistResults, searchedKeyword, doSearch]);
 
-  const doPlaylistSearch = useCallback(async (keyword: string, page = 1, channel = playlistChannelFilter) => {
+  const doPlaylistSearch = useCallback(async (
+    keyword: string,
+    page = 1,
+    channel = playlistChannelFilter,
+    limit = playlistSearchPageSize,
+  ) => {
     const trimmed = keyword.trim();
     if (!trimmed) {
       setPlaylistSearchResults([]);
@@ -549,7 +561,7 @@ export default function Room() {
     setIsPlaylistResults(false);
     setResults([]);
     try {
-      const data = await searchPlaylists(trimmed, page, PLAYLIST_SEARCH_PAGE_SIZE, channel);
+      const data = await searchPlaylists(trimmed, page, limit, channel);
       setPlaylistSearchResults(data.playlists);
       setPlaylistSearchPage(data.page);
       setPlaylistSearchTotal(data.total);
@@ -560,7 +572,15 @@ export default function Room() {
     } finally {
       setPlaylistSearchLoading(false);
     }
-  }, [playlistChannelFilter, showToast]);
+  }, [playlistChannelFilter, playlistSearchPageSize, showToast]);
+
+  const handlePlaylistPageSizeChange = useCallback((next: SongResultPageSize) => {
+    setPlaylistSearchPageSize(next);
+    setStoredSongResultPageSize(next);
+    if (searchedKeyword.trim() && searchMode === 'playlist') {
+      void doPlaylistSearch(searchedKeyword, 1, playlistChannelFilter, next);
+    }
+  }, [searchedKeyword, searchMode, playlistChannelFilter, doPlaylistSearch]);
 
   const handlePlaylistChannelChange = useCallback((next: PlaylistChannelFilterMode) => {
     setPlaylistChannelFilter(next);
@@ -578,6 +598,7 @@ export default function Room() {
         page: playlistSearchPage,
         total: playlistSearchTotal,
         channel: playlistChannelFilter,
+        pageSize: playlistSearchPageSize,
       });
     }
     setSearching(true);
@@ -611,7 +632,7 @@ export default function Room() {
     } finally {
       setSearching(false);
     }
-  }, [showToast, searchMode, searchedKeyword, playlistSearchResults, playlistSearchPage, playlistSearchTotal, playlistChannelFilter]);
+  }, [showToast, searchMode, searchedKeyword, playlistSearchResults, playlistSearchPage, playlistSearchTotal, playlistChannelFilter, playlistSearchPageSize]);
 
   const handleRecommendPlaylistSelect = useCallback(async (playlist: PlaylistSearchItem) => {
     await handlePlaylistImport(playlist.platform, playlist.id);
@@ -658,6 +679,7 @@ export default function Room() {
     setPlaylistSearchPage(playlistSearchBackup.page);
     setPlaylistSearchTotal(playlistSearchBackup.total);
     setPlaylistChannelFilter(playlistSearchBackup.channel);
+    setPlaylistSearchPageSize(playlistSearchBackup.pageSize);
     setListPageSongs([]);
   }, [playlistSearchBackup, clearSearchResults]);
 
@@ -857,7 +879,7 @@ export default function Room() {
   const hasPlaylistSearchResults = showPlaylistSearch && playlistSearchResults.length > 0;
   const showPlaylistEmpty = showPlaylistSearch && !playlistSearchLoading && playlistSearchResults.length === 0;
   const showPlaylistSkeleton = showPlaylistSearch && playlistSearchLoading && playlistSearchResults.length === 0;
-  const playlistSearchTotalPages = Math.max(1, Math.ceil(playlistSearchTotal / PLAYLIST_SEARCH_PAGE_SIZE));
+  const playlistSearchTotalPages = Math.max(1, Math.ceil(playlistSearchTotal / playlistSearchPageSize));
   const searchButtonLoading = searchMode === 'song'
     ? searching
     : playlistSearchLoading && playlistSearchResults.length === 0;
@@ -1010,19 +1032,25 @@ export default function Room() {
           </div>
         )}
       </div>
-      {playlistSearchTotalPages > 1 && (
-        <div className="mt-auto flex-shrink-0 space-y-2 border-t border-netease-border/40 pt-3">
-          <div className="text-center text-xs text-netease-muted">
-            共 {playlistSearchTotal} 个歌单
-          </div>
-          <PageNumberPagination
-            page={playlistSearchPage}
-            totalPages={playlistSearchTotalPages}
-            disabled={playlistSearchLoading}
-            onPageChange={(p) => void doPlaylistSearch(searchedKeyword, p)}
+      <div className="mt-auto flex-shrink-0 space-y-2 overflow-visible border-t border-netease-border/40 bg-netease-bg/90 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <PageSizeSelect
+            value={playlistSearchPageSize}
+            options={SONG_RESULT_PAGE_SIZE_OPTIONS}
+            onChange={handlePlaylistPageSizeChange}
           />
+          <span className="text-xs text-netease-muted">
+            {playlistSearchPage} / {playlistSearchTotalPages}
+            <span className="ml-1 text-netease-muted/50">共 {playlistSearchTotal} 个</span>
+          </span>
         </div>
-      )}
+        <PageNumberPagination
+          page={playlistSearchPage}
+          totalPages={playlistSearchTotalPages}
+          disabled={playlistSearchLoading}
+          onPageChange={(p) => void doPlaylistSearch(searchedKeyword, p)}
+        />
+      </div>
     </div>
   );
 
@@ -1404,7 +1432,7 @@ export default function Room() {
             <div className="lg:hidden">
               {searching && searchedKeyword && !showPlaylistSearch && <SearchSkeleton />}
               {showPlaylistSkeleton && (
-                <SearchSkeleton count={PLAYLIST_SEARCH_PAGE_SIZE} showPaginationFooter={false} />
+                <SearchSkeleton count={playlistSearchPageSize} showPaginationFooter={false} />
               )}
 
               {!searching && !playlistSearchLoading && searchedKeyword && (
@@ -1425,7 +1453,7 @@ export default function Room() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                    {hasPlaylistSearchResults && (
+                    {showPlaylistSearch && (
                       <PlaylistChannelFilter value={playlistChannelFilter} onChange={handlePlaylistChannelChange} />
                     )}
                     {searchableCount > 0 && !isPlaylistResults && (
@@ -1515,7 +1543,7 @@ export default function Room() {
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                {hasPlaylistSearchResults && (
+                {showPlaylistSearch && (
                   <PlaylistChannelFilter value={playlistChannelFilter} onChange={handlePlaylistChannelChange} />
                 )}
                 {!searching && searchableCount > 0 && !isPlaylistResults && (
@@ -1538,7 +1566,7 @@ export default function Room() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 pt-2">
               {searching && searchedKeyword && !showPlaylistSearch && <SearchSkeleton fillHeight />}
               {showPlaylistSkeleton && (
-                <SearchSkeleton fillHeight count={PLAYLIST_SEARCH_PAGE_SIZE} showPaginationFooter={false} />
+                <SearchSkeleton fillHeight count={playlistSearchPageSize} showPaginationFooter={false} />
               )}
               {!searching && !playlistSearchLoading && searchedKeyword && !hasPlaylistSearchResults && results.length === 0 && (
                 <p className="text-center text-netease-muted py-10 animate-fade-in">
