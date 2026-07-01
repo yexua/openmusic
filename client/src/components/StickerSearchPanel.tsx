@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Search } from 'lucide-react';
 import { fetchStickerSearchEnabled, searchStickers } from '../api/stickerSearch';
+import Tooltip from './Tooltip';
 
 const GRID_ROWS = 3;
 const STICKER_MAX_HEIGHT = '3.5rem';
+const STICKER_HOVER_DELAY_MS = 300;
+const STICKER_PREVIEW_MAX_HEIGHT = '7rem';
+const STICKER_PREVIEW_MAX_WIDTH = '8.5rem';
 const GRID_GAP = '0.375rem';
 const GRID_HEIGHT = `calc(${GRID_ROWS} * ${STICKER_MAX_HEIGHT} + ${GRID_ROWS - 1} * ${GRID_GAP})`;
 /** 面板内容区固定高度（含搜索栏、错误槽、网格、分页槽），供外层容器对齐 */
@@ -146,26 +150,40 @@ export default function StickerSearchPanel({ disabled = false, onPick, onBack }:
         }}
       >
         {images.map((imageUrl) => (
-          <button
+          <Tooltip
             key={imageUrl}
-            type="button"
+            side="top"
+            delay={STICKER_HOVER_DELAY_MS}
             disabled={disabled || Boolean(sendingUrl)}
-            onClick={() => void handlePick(imageUrl)}
-            className="relative flex h-full min-h-0 w-full items-center justify-center rounded-lg bg-white/5 transition-colors hover:bg-white/10 disabled:opacity-50"
-            aria-label="发送表情包"
-          >
-            <img
-              src={imageUrl}
-              alt=""
-              loading="lazy"
-              className="block max-h-full w-auto max-w-full rounded-lg object-contain"
-            />
-            {sendingUrl === imageUrl && (
-              <span className="absolute inset-0 flex items-center justify-center bg-black/45">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
-              </span>
+            content={(
+              <img
+                src={imageUrl}
+                alt="表情包预览"
+                className="mx-auto block rounded-lg object-contain"
+                style={{ maxHeight: STICKER_PREVIEW_MAX_HEIGHT, maxWidth: STICKER_PREVIEW_MAX_WIDTH }}
+              />
             )}
-          </button>
+          >
+            <button
+              type="button"
+              disabled={disabled || Boolean(sendingUrl)}
+              onClick={() => void handlePick(imageUrl)}
+              className="relative flex h-full min-h-0 w-full items-center justify-center rounded-lg bg-white/5 transition-colors hover:bg-white/10 disabled:opacity-50"
+              aria-label="发送表情包"
+            >
+              <img
+                src={imageUrl}
+                alt=""
+                loading="lazy"
+                className="block max-h-full w-auto max-w-full rounded-lg object-contain"
+              />
+              {sendingUrl === imageUrl && (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/45">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                </span>
+              )}
+            </button>
+          </Tooltip>
         ))}
         {(loading && images.length === 0) || (!loading && images.length === 0 && !error) ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

@@ -47,8 +47,8 @@ let lastTvJoinSession: JoinSession | null = null;
 let activeJoinMode: 'normal' | 'tv' | null = null;
 let rejoinInFlight = false;
 let joinGeneration = 0;
-
-
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
 
 function getSocket(): Socket {
 
@@ -61,6 +61,14 @@ function getSocket(): Socket {
       autoConnect: false,
 
       withCredentials: true,
+
+      reconnection: true,
+
+      reconnectionAttempts: Infinity,
+
+      reconnectionDelay: 1000,
+
+      reconnectionDelayMax: 8000,
 
     });
 
@@ -205,6 +213,10 @@ function applyJoinResponse(session: JoinSession, res: JoinAckResponse) {
   if (res.room.current || res.room.nextRandom || (res.room.queue?.length ?? 0) > 0) {
     prefetchUpcomingFromRoom(res.room);
   }
+
+  clearReconnectSchedule();
+  reconnectAttempt = 0;
+  useRoomStore.getState().setReconnecting(false);
 }
 
 function applyRoomSnapshot(room: RoomState, force = false) {
@@ -251,38 +263,147 @@ function applyJoinExtras(
   prefetchSongHistory(room.id);
 }
 
-function rejoinActiveRoom() {
-  const session = activeJoinMode === 'tv'
-    ? lastTvJoinSession
-    : lastJoinSession;
-  const currentRoom = useRoomStore.getState().room;
-  if (!session || !currentRoom || rejoinInFlight) return;
+function getActiveJoinSession(): JoinSession | null {
+  if (activeJoinMode === 'tv' && lastTvJoinSession) return lastTvJoinSession;
+  if (lastJoinSession) return lastJoinSession;
 
-  rejoinInFlight = true;
-  const doRejoin = () => {
-    getSocket().timeout(SOCKET_ACK_TIMEOUT_MS).emit(
+  const room = useRoomStore.getState().room;
+  const nickname = useRoomStore.getState().nickname.trim();
+  if (room && nickname) {
+    return { roomId: room.id, nickname };
+  }
+  return null;
+}
+
+function shouldMaintainRoomSession(): boolean {
+  return Boolean(getActiveJoinSession() && useRoomStore.getState().room);
+}
+
+function clearReconnectSchedule() {
+  if (reconnectTimer != null) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function isPermanentRejoinError(error?: string): boolean {
+  const message = String(error || '').trim();
+  if (!message) return false;
+  return (
+    message.includes('房间不存在')
+    || message.includes('无法再次进入')
+    || message.includes('密码')
+    || message.includes('禁止')
+  );
+}
+
+function scheduleRoomRejoin(trigger: string) {
+  if (!shouldMaintainRoomSession()) return;
+  if (reconnectTimer != null) return;
+
+  const delay = Math.min(800 + reconnectAttempt * 500, 8000);
+  reconnectAttempt += 1;
+  useRoomStore.getState().setReconnecting(true);
+  debugLog('room_rejoin_scheduled', { trigger, delay, attempt: reconnectAttempt });
+
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    void attemptRoomRejoin(trigger);
+  }, delay);
+}
+
+function emitJoinRoom(s: Socket, session: JoinSession): Promise<JoinAckResponse> {
+  return new Promise((resolve) => {
+    s.timeout(SOCKET_ACK_TIMEOUT_MS).emit(
       'join_room',
       joinPayload(session),
       (err: Error | null, res: JoinAckResponse | undefined) => {
-        rejoinInFlight = false;
-        if (err || !res?.success || !res.room) return;
-        applyJoinResponse(session, res);
+        if (err || !res) {
+          resolve({ success: false, error: err?.message || '加入房间失败' });
+          return;
+        }
+        resolve(res);
       },
     );
-  };
+  });
+}
 
-  if (session.readOnly) {
-    doRejoin();
+async function attemptRoomRejoin(trigger: string) {
+  const session = getActiveJoinSession();
+  const currentRoom = useRoomStore.getState().room;
+  if (!session || !currentRoom) {
+    useRoomStore.getState().setReconnecting(false);
     return;
   }
+  if (rejoinInFlight) return;
 
-  ensureSocketReady(false)
-    .then(() => {
-      doRejoin();
-    })
-    .catch(() => {
-      rejoinInFlight = false;
+  rejoinInFlight = true;
+  useRoomStore.getState().setReconnecting(true);
+  debugLog('room_rejoin_attempt', { trigger, roomId: session.roomId, attempt: reconnectAttempt });
+
+  try {
+    resetSessionBootstrap();
+    await requireSessionBootstrap(true);
+
+    let s = getSocket();
+    if (!s.connected) {
+      socketConnectRequested = true;
+      if (!s.active) s.connect();
+      await waitForSocketConnect(s, 12000);
+    }
+
+    let res = await emitJoinRoom(s, session);
+
+    if (!res.success && res.needsSession && !session.readOnly) {
+      s = await reconnectSocketSession(true);
+      res = await emitJoinRoom(s, session);
+    }
+
+    if (res.success && res.room) {
+      reconnectAttempt = 0;
+      applyJoinResponse(session, res);
+      useRoomStore.getState().setReconnecting(false);
+      clearReconnectSchedule();
+      return;
+    }
+
+    if (isPermanentRejoinError(res.error)) {
+      useRoomStore.getState().setReconnecting(false);
+      clearReconnectSchedule();
+      return;
+    }
+
+    scheduleRoomRejoin('join_failed');
+  } catch (err) {
+    debugLog('room_rejoin_error', {
+      trigger,
+      message: err instanceof Error ? err.message : String(err),
     });
+    scheduleRoomRejoin('error');
+  } finally {
+    rejoinInFlight = false;
+  }
+}
+
+function handleSocketDisconnect(reason: string) {
+  debugLog('socket_disconnect', { reason });
+  const { mySocketId } = useRoomStore.getState();
+  useRoomStore.getState().setConnectionInfo(mySocketId, false, null);
+
+  if (!shouldMaintainRoomSession()) return;
+
+  resetSessionBootstrap();
+  clearReconnectSchedule();
+  reconnectAttempt = 0;
+  useRoomStore.getState().setReconnecting(true);
+
+  if (reason === 'io server disconnect') {
+    const s = getSocket();
+    socketConnectRequested = true;
+    s.connect();
+  }
+
+  scheduleRoomRejoin(`disconnect:${reason}`);
 }
 
 
@@ -381,6 +502,8 @@ let prefetchDebounceTimer = 0;
       lastJoinSession = null;
       lastTvJoinSession = null;
       activeJoinMode = null;
+      clearReconnectSchedule();
+      reconnectAttempt = 0;
       useChatStore.getState().clear();
       useSongHistoryStore.getState().clear();
       stopSharedAudio();
@@ -413,15 +536,16 @@ let prefetchDebounceTimer = 0;
 
     s.on('connect', () => {
       debugLog('socket_connect', { id: s.id, transport: s.io.engine?.transport?.name });
-      rejoinActiveRoom();
+      void attemptRoomRejoin('connect');
     });
-    s.on('disconnect', (reason) => {
-      debugLog('socket_disconnect', { reason });
-      useRoomStore.getState().setConnectionInfo(useRoomStore.getState().mySocketId, false, null);
-    });
+    s.on('disconnect', handleSocketDisconnect);
     s.on('connect_error', (err) => {
       debugLog('socket_connect_error', { message: err?.message });
-      useRoomStore.getState().setConnectionInfo(useRoomStore.getState().mySocketId, false, null);
+      const { mySocketId } = useRoomStore.getState();
+      useRoomStore.getState().setConnectionInfo(mySocketId, false, null);
+      if (shouldMaintainRoomSession()) {
+        scheduleRoomRejoin('connect_error');
+      }
     });
 
   }, [setConnectionInfo, resetSession]);
@@ -517,6 +641,9 @@ if (!connected.current && !socketConnectRequested) {
     lastJoinSession = null;
     lastTvJoinSession = null;
     activeJoinMode = null;
+    clearReconnectSchedule();
+    reconnectAttempt = 0;
+    useRoomStore.getState().setReconnecting(false);
     useChatStore.getState().clear();
     useSongHistoryStore.getState().clear();
     stopSharedAudio();

@@ -15,6 +15,7 @@ interface RoomStore {
   isPlaybackLeader: boolean;
   showPlayer: boolean;
   exitReason: string | null;
+  isReconnecting: boolean;
   setRoom: (room: RoomState | null) => void;
   setNickname: (name: string) => void;
   setConnectionInfo: (
@@ -27,6 +28,7 @@ interface RoomStore {
   syncRolesFromRoom: (room: RoomState) => void;
   setShowPlayer: (show: boolean) => void;
   setExitReason: (reason: string | null) => void;
+  setReconnecting: (reconnecting: boolean) => void;
   resetSession: () => void;
 }
 
@@ -41,6 +43,7 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
   isPlaybackLeader: false,
   showPlayer: false,
   exitReason: null,
+  isReconnecting: false,
   setRoom: (room) => set({ room }),
   setNickname: (nickname) => {
     localStorage.setItem('sjb_nickname', nickname);
@@ -75,6 +78,7 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
   },
   setShowPlayer: (showPlayer) => set({ showPlayer }),
   setExitReason: (exitReason) => set({ exitReason }),
+  setReconnecting: (isReconnecting) => set({ isReconnecting }),
   resetSession: () => set({
     room: null,
     mySocketId: null,
@@ -85,5 +89,6 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
     isPlaybackLeader: false,
     showPlayer: false,
     exitReason: null,
+    isReconnecting: false,
   }),
 }));

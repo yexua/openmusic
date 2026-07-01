@@ -202,7 +202,7 @@ export default function Room() {
 
   const roomPassword = (location.state as { password?: string } | null)?.password || getStoredRoomPassword(roomId);
 
-  const { room, nickname, showPlayer, setShowPlayer, isOwner, isAdmin, canControlPlayback, mySocketId, exitReason } = useRoomStore();
+  const { room, nickname, showPlayer, setShowPlayer, isOwner, isAdmin, canControlPlayback, mySocketId, exitReason, isReconnecting } = useRoomStore();
 
   const pureMode = usePureModeStore((s) => s.enabled);
   const setPureModeEnabled = usePureModeStore((s) => s.setEnabled);
@@ -1710,7 +1710,12 @@ export default function Room() {
 
       </header>
 
-
+      {isReconnecting && (
+        <div className="relative z-20 flex flex-shrink-0 items-center justify-center gap-2 border-b border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>连接已断开，正在自动重新加入房间…</span>
+        </div>
+      )}
 
       <div className={`relative z-10 flex-1 min-h-0 mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] overflow-y-auto lg:overflow-hidden ${pureMode ? 'max-w-3xl' : 'max-w-[1680px]'}`}>
 
