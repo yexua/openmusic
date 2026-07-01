@@ -1,4 +1,4 @@
-/** Mineradio cover particle vertex shader (presets 0-5) */
+ /** Mineradio cover particle vertex shader (presets 0-5) */
 export const PARTICLE_VERTEX_SHADER = `
 precision highp float;
 uniform float uTime, uBass, uMid, uTreble, uBeat, uEnergy, uBurstAmt;
@@ -411,9 +411,9 @@ void main(){
  vColor = mix(vColor, tintedColor, clamp(uTintStrength, 0.0, 1.0) * (1.0 - blackParticleGuard));
 
  vBright = 0.82 + maxRippleAmp * 0.55 + uBass * 0.10 + edgeBoost * 0.30 + uEnergy * 0.05 + uBurstAmt * 0.40;
- if (uPreset > 4.5) {
+ if (uPreset > 4.5 && uPreset < 5.5) {
  vBright = 0.94 + maxRippleAmp * 0.34 + uBass * 0.020 + uEnergy * 0.026 + uBurstAmt * 0.025;
- } else if (uPreset > 3.5) {
+ } else if (uPreset > 3.5 && uPreset < 4.5) {
  vBright = 0.94 + maxRippleAmp * 0.64 + uBass * 0.08 + edgeBoost * 0.12 + uEnergy * 0.05 + uBeat * 0.16 + uBurstAmt * 0.16;
  }
  vRipple = clamp(maxRippleAmp * 1.5, 0.0, 1.0);
@@ -458,10 +458,10 @@ void main(){
  float depthSize = 36.0 / max(0.5, -mvPos.z);
  float audioBoost = 1.0 + maxRippleAmp * 0.7 + edgeBoost * 0.55 + uBeat * 0.30 + uBurstAmt * 0.5;
  float sz = clamp(depthSize * audioBoost, 1.05, 4.95);
- if (uPreset > 4.5) {
+ if (uPreset > 4.5 && uPreset < 5.5) {
  float flowDrive = uBass * 0.070 + uMid * 0.046 + uTreble * 0.060 + uBurstAmt * 0.090 + uBeat * 0.055;
  sz = clamp(depthSize * (1.05 + flowDrive), 1.00, 5.45);
- } else if (uPreset > 3.5) {
+ } else if (uPreset > 3.5 && uPreset < 4.5) {
  float ringDrive = uBass * 0.30 + uMid * 0.18 + uTreble * 0.22 + uBeat * 0.30;
  sz = clamp(depthSize * (0.90 + ringDrive * 0.62), 1.05, 3.90);
  }

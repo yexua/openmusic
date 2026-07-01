@@ -4,26 +4,22 @@ const FX_KEY = 'openmusic:room-visual-fx';
 /** Mineradio 着色器预设：0=emily … 5=galaxy */
 export type RoomVisualPresetId = 0 | 1 | 2 | 3 | 4 | 5;
 
-/** 房间背景模式（对齐 Mineradio presetMeta，不含安魂） */
+/** 房间背景模式 */
 export type RoomVisualMode =
   | 'emily'
   | 'tunnel'
-  | 'orbit'
-  | 'void'
   | 'vinyl'
   | 'galaxy'
   | 'cover-bg'
   | 'off';
 
 export const ROOM_VISUAL_DISPLAY_ORDER: RoomVisualMode[] = [
+  'off',
+  'cover-bg',
   'emily',
   'galaxy',
   'vinyl',
-  'orbit',
   'tunnel',
-  'void',
-  'cover-bg',
-  'off',
 ];
 
 export const ROOM_VISUAL_MODES: RoomVisualMode[] = ROOM_VISUAL_DISPLAY_ORDER;
@@ -38,8 +34,6 @@ export const ROOM_VISUAL_MODE_META: Record<
 > = {
   emily: { name: 'emily专辑封面', hasSettings: true, shaderPreset: 0 },
   tunnel: { name: '滚筒', hasSettings: true, shaderPreset: 1 },
-  orbit: { name: '星球', hasSettings: true, shaderPreset: 2 },
-  void: { name: '虚空', hasSettings: true, shaderPreset: 3 },
   vinyl: { name: '唱片', hasSettings: true, shaderPreset: 4 },
   galaxy: { name: '星河', hasSettings: true, shaderPreset: 5 },
   'cover-bg': { name: '封面背景', hasSettings: false },
@@ -57,13 +51,19 @@ export const ROOM_VISUAL_PRESET_META = Object.fromEntries(
 const LEGACY_MODE_ALIASES: Record<string, RoomVisualMode> = {
   cover: 'emily',
   skull: 'galaxy',
+  orbit: 'galaxy',
+  void: 'cover-bg',
+  soundwave: 'galaxy',
+  vortex: 'galaxy',
+  aurora: 'galaxy',
+  raindrop: 'galaxy',
 };
 
 const LEGACY_NUMERIC_MODE: Record<number, RoomVisualMode> = {
   0: 'emily',
   1: 'tunnel',
-  2: 'orbit',
-  3: 'void',
+  2: 'galaxy',
+  3: 'cover-bg',
   4: 'vinyl',
   5: 'galaxy',
   6: 'galaxy',
@@ -145,9 +145,9 @@ export function readEffectiveRoomVisualMode(): RoomVisualMode {
   return readRoomVisualMode();
 }
 
-/** 封面背景层需 Canvas 采样时走 media-proxy（cover-bg / void 底图） */
+/** 封面背景层需 Canvas 采样时走 media-proxy */
 export function visualModeUsesProxiedCover(mode: RoomVisualMode): boolean {
-  return mode === 'cover-bg' || mode === 'void';
+  return mode === 'cover-bg';
 }
 
 /**
@@ -224,8 +224,6 @@ export const ROOM_AMBIENT_GLASS_TRANSPARENT_CLASS = 'border-transparent bg-trans
 const SHADER_VISUAL_MODES = new Set<RoomVisualMode>([
   'emily',
   'tunnel',
-  'orbit',
-  'void',
   'vinyl',
   'galaxy',
 ]);

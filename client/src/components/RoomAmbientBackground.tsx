@@ -17,8 +17,7 @@ export default function RoomAmbientBackground({ song, visualMode, isPlaying }: P
   const meta = ROOM_VISUAL_MODE_META[visualMode];
   const shaderPreset = meta.shaderPreset;
   const showGalaxy = shaderPreset !== undefined;
-  const showCoverUnderlay =
-    (visualMode === 'cover-bg' || visualMode === 'void') && Boolean(coverUrl);
+  const showCoverUnderlay = visualMode === 'cover-bg' && Boolean(coverUrl);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
