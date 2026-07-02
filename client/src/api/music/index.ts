@@ -232,8 +232,19 @@ export function getActiveLyricPair(
 /** 歌词结束后常见纯音乐尾奏预留（秒） */
 const LRC_TAIL_PADDING_SEC = 20;
 
-/** 从 LRC 推算备选时长（毫秒）：有效歌词末行 + 20 秒尾奏 */
+const INSTRUMENTAL_LINE_RE =
+  /纯音乐|伴奏|instrumental|off\s*vocal|no\s*vocal|请欣赏|此歌曲为.*纯音乐/i;
+
+/** 有效演唱歌词是否仅为纯音乐/伴奏提示（不可用于推算时长） */
+export function isInstrumentalOnlyLyrics(lrc: string): boolean {
+  const lines = filterDisplayLyrics(parseLrc(lrc));
+  if (lines.length === 0) return true;
+  return lines.every((line) => INSTRUMENTAL_LINE_RE.test(line.text.trim()));
+}
+
+/** 从 LRC 推算备选时长（毫秒）：有效歌词末行 + 20 秒尾奏；纯音乐/伴奏提示不推算 */
 export function getLrcFallbackDurationMs(lrc: string): number | undefined {
+  if (isInstrumentalOnlyLyrics(lrc)) return undefined;
   const lines = filterDisplayLyrics(parseLrc(lrc));
   if (lines.length === 0) return undefined;
   return Math.round((lines[lines.length - 1].time + LRC_TAIL_PADDING_SEC) * 1000);

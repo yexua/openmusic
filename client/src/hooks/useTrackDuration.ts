@@ -25,13 +25,12 @@ function lrcDurationSeconds(sources: DurationSources, key: string): number {
   return sources.lrcDurationMs / 1000;
 }
 
+/** 元数据时长（不含歌词推算），用于校验媒体时长与自动切歌 */
 export function resolveReferenceDurationSeconds(
   song: TrackSong | null | undefined,
-  sources: DurationSources,
+  _sources?: DurationSources,
 ): number {
-  if (!song) return 0;
-  const key = getTrackKey(song as Pick<QueueItem, 'queueId' | 'id' | 'source'>);
-  return metadataDurationSeconds(song) || lrcDurationSeconds(sources, key);
+  return metadataDurationSeconds(song);
 }
 
 export function isTrustedMediaDurationSeconds(
@@ -62,7 +61,7 @@ function trustedStoredMediaDurationSeconds(
     : 0;
 }
 
-/** Seek/end cap duration: metadata first, trusted media next, lyrics as fallback. */
+/** Seek/end cap：音频文件优先，元数据次之，不使用歌词推算 */
 export function resolveTrackDurationSeconds(
   song: TrackSong | null | undefined,
   sources: DurationSources,
@@ -70,11 +69,11 @@ export function resolveTrackDurationSeconds(
   if (!song) return 0;
 
   const key = getTrackKey(song as Pick<QueueItem, 'queueId' | 'id' | 'source'>);
-  const referenceDur = resolveReferenceDurationSeconds(song, sources);
-  if (referenceDur > 0) return referenceDur;
-
   const mediaDur = trustedStoredMediaDurationSeconds(song, sources, key);
   if (mediaDur > 0) return mediaDur;
+
+  const metadataDur = metadataDurationSeconds(song);
+  if (metadataDur > 0) return metadataDur;
 
   return 0;
 }
@@ -93,10 +92,13 @@ export function resolveDisplayDurationSeconds(
   const referenceDur = resolveReferenceDurationSeconds(song, sources);
   if (referenceDur > 0) return referenceDur;
 
+  const lrcDur = lrcDurationSeconds(sources, key);
+  if (lrcDur > 0) return lrcDur;
+
   return 0;
 }
 
-/** Auto-skip/sync cap: use the shortest trusted source only. */
+/** Auto-skip：仅用音频/元数据；多路媒体取较短者（应对截断预览） */
 export function resolveAutoSkipThresholdSeconds(
   song: TrackSong | null | undefined,
   sources: DurationSources,
@@ -108,12 +110,13 @@ export function resolveAutoSkipThresholdSeconds(
   const referenceDur = resolveReferenceDurationSeconds(song, sources);
   const fileDur = isTrustedMediaDurationSeconds(fileDurationSec, referenceDur) ? fileDurationSec! : 0;
   const storedMedia = trustedStoredMediaDurationSeconds(song, sources, key);
-  const displayDur = resolveDisplayDurationSeconds(song, sources);
 
-  const candidates = [fileDur, storedMedia, displayDur].filter((d) => d > 0);
-  if (candidates.length > 0) return Math.min(...candidates);
+  const mediaCandidates = [fileDur, storedMedia].filter((d) => d > 0);
+  if (mediaCandidates.length > 0) return Math.min(...mediaCandidates);
 
-  return resolveTrackDurationSeconds(song, sources);
+  if (referenceDur > 0) return referenceDur;
+
+  return 0;
 }
 
 export function clampPlaybackTime(currentTime: number, duration: number): number {

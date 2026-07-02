@@ -49,8 +49,6 @@ function notifyRoomPrefetchReady(room) {
   }
 }
 const AUTO_ADVANCE_GRACE_SEC = 0.15;
-const LRC_TAIL_PADDING_SEC = 20;
-
 const NETEASE_CANONICAL = new Set(['standard', 'higher', 'exhigh', 'lossless', 'hires']);
 const TENCENT_CANONICAL = new Set(['standard', 'exhigh', 'lossless']);
 const QUALITY_ALIASES = {
@@ -667,23 +665,7 @@ function freezePlayback(room) {
 function getSongDurationSeconds(song) {
   const durationMs = Number(song?.duration || 0);
   if (Number.isFinite(durationMs) && durationMs > 0) return durationMs / 1000;
-
-  let lastTime = 0;
-  const regex = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
-  const PHANTOM_LRC_MINUTES = 90;
-  for (const line of String(song?.lrc || '').split('\n')) {
-    let match;
-    while ((match = regex.exec(line))) {
-      const minutes = Number(match[1]);
-      if (minutes >= PHANTOM_LRC_MINUTES) continue;
-      const seconds = Number(match[2]);
-      const fraction = match[3] ? Number(`0.${match[3].padEnd(3, '0').slice(0, 3)}`) : 0;
-      const time = minutes * 60 + seconds + fraction;
-      if (Number.isFinite(time) && time > lastTime) lastTime = time;
-    }
-  }
-
-  return lastTime > 0 ? lastTime + LRC_TAIL_PADDING_SEC : 0;
+  return 0;
 }
 
 export function createRoom({ name, password, creatorId } = {}) {
@@ -2418,7 +2400,7 @@ export function getSongHistory(roomId, options = {}) {
   return { songs };
 }
 
-/** 房主上报歌词/媒体推算的时长，供服务端自动切歌（不广播 room_update） */
+/** 房主上报音频/元数据时长，供服务端自动切歌（不广播 room_update） */
 export function reportTrackDuration(roomId, userId, queueId, durationMs, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room?.current) return { error: '无当前歌曲' };
@@ -2431,6 +2413,9 @@ export function reportTrackDuration(roomId, userId, queueId, durationMs, connect
 
   const ms = Number(durationMs);
   if (!Number.isFinite(ms) || ms <= 0) return { error: '时长无效' };
+
+  const existing = Number(room.current.duration || 0);
+  if (existing > 0 && ms <= existing) return { success: true, skipped: true };
 
   room.current.duration = Math.round(ms);
   persistRoom(room);

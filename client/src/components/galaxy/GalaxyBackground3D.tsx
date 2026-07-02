@@ -1,14 +1,19 @@
 import { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import type { RoomVisualPresetId } from '../../lib/roomVisualPreset';
+import GalaxyAudioDriver from './GalaxyAudioDriver';
 import GalaxyCameraRig from './GalaxyCameraRig';
+import GalaxyOrbitControls from './GalaxyOrbitControls';
 import GalaxyParticles from './GalaxyParticles';
+import GalaxyBeatMapDriver from './GalaxyBeatMapDriver';
+import type { QueueItem } from '../../types';
 
 interface Props {
   className?: string;
   coverUrl?: string | null;
   preset: RoomVisualPresetId;
   isPlaying: boolean;
+  song?: Pick<QueueItem, 'queueId' | 'id' | 'source' | 'url'> | null;
 }
 
 export default function GalaxyBackground3D({
@@ -16,6 +21,7 @@ export default function GalaxyBackground3D({
   coverUrl,
   preset,
   isPlaying,
+  song,
 }: Props) {
   return (
     <div className={`${className} overflow-hidden bg-[#08090b]`} aria-hidden>
@@ -37,6 +43,9 @@ export default function GalaxyBackground3D({
       >
         <color attach="background" args={['#08090b']} />
         <Suspense fallback={null}>
+          <GalaxyBeatMapDriver song={song} isPlaying={isPlaying} />
+          <GalaxyAudioDriver preset={preset} />
+          <GalaxyOrbitControls preset={preset} />
           <GalaxyCameraRig preset={preset} />
           <GalaxyParticles coverUrl={coverUrl} preset={preset} isPlaying={isPlaying} />
         </Suspense>

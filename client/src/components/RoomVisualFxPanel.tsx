@@ -15,6 +15,7 @@ interface Props {
 
 type SliderKey =
   | 'cameraDistance'
+  | 'cinemaShake'
   | 'intensity'
   | 'depth'
   | 'coverResolution'
@@ -44,6 +45,14 @@ const SLIDERS: SliderDef[] = [
     max: 1.65,
     step: 0.01,
     formatValue: (v) => (v < 0.9 ? '较近' : v > 1.1 ? '较远' : '默认'),
+  },
+  {
+    key: 'cinemaShake',
+    label: '电影镜头',
+    min: 0,
+    max: 1.8,
+    step: 0.01,
+    formatValue: (v) => (v < 0.05 ? '关闭' : v < 0.6 ? '轻微' : v < 1.1 ? '标准' : '强烈'),
   },
   { key: 'intensity', label: '强度', min: 0.2, max: 1.6, step: 0.01 },
   { key: 'depth', label: '深度', min: 0.2, max: 1.8, step: 0.01 },

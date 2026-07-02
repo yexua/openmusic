@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Layers } from 'lucide-react';
 import {
   ROOM_VISUAL_DISPLAY_ORDER,
   ROOM_VISUAL_MODE_META,
@@ -29,6 +29,9 @@ export default function RoomVisualPresetSelect({ value, onChange }: Props) {
     setOpen(false);
   };
 
+  const headerBtnClass =
+    'flex items-center gap-1.5 text-xs text-netease-muted hover:text-white transition-colors px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-netease-card';
+
   return (
     <div ref={rootRef} className="relative flex-shrink-0">
       <button
@@ -37,10 +40,10 @@ export default function RoomVisualPresetSelect({ value, onChange }: Props) {
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label="视觉预设"
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white sm:px-3"
+        className={headerBtnClass}
       >
-        <Sparkles className="h-4 w-4 flex-shrink-0" />
-        <span className="hidden sm:inline whitespace-nowrap">{ROOM_VISUAL_MODE_META[value].name}</span>
+        <Layers className="h-4 w-4 flex-shrink-0" />
+        <span className="hidden whitespace-nowrap sm:inline">{ROOM_VISUAL_MODE_META[value].name}</span>
         <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -48,7 +51,7 @@ export default function RoomVisualPresetSelect({ value, onChange }: Props) {
         <div
           role="listbox"
           aria-label="视觉预设"
-          className="absolute right-0 top-full z-50 mt-1 max-h-[min(70vh,420px)] min-w-[9.5rem] overflow-y-auto rounded-xl border border-white/15 bg-[#14161c] py-1 shadow-2xl animate-fade-in"
+          className="absolute right-0 top-full z-50 mt-1 max-h-[min(70vh,420px)] min-w-[9.5rem] overflow-y-auto rounded-xl border border-white/10 bg-netease-card py-1 shadow-2xl animate-fade-in"
         >
           {ROOM_VISUAL_DISPLAY_ORDER.map((mode) => (
             <button
@@ -57,11 +60,7 @@ export default function RoomVisualPresetSelect({ value, onChange }: Props) {
               role="option"
               aria-selected={value === mode}
               onClick={() => select(mode)}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors ${
-                value === mode
-                  ? 'bg-white/10 text-white'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-netease-muted transition-colors hover:bg-netease-card hover:text-white"
             >
               <Check className={`h-3.5 w-3.5 flex-shrink-0 ${value === mode ? 'opacity-100' : 'opacity-0'}`} />
               <span>{ROOM_VISUAL_MODE_META[mode].name}</span>

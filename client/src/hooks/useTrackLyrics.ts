@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getLyrics, parseLrc, getLrcFallbackDurationMs, getTrackKey } from '../api/music';
 import { useAudioStore } from '../stores/audioStore';
-import { reportTrackDurationToServer } from '../lib/reportTrackDuration';
 import type { LyricLine, Song } from '../types';
 
 export function useTrackLyrics(song: Pick<Song, 'id' | 'source' | 'name' | 'lrc' | 'duration'> | null | undefined) {
@@ -26,13 +25,7 @@ export function useTrackLyrics(song: Pick<Song, 'id' | 'source' | 'name' | 'lrc'
         setLyrics(lines);
         if (!song.duration) {
           const ms = getLrcFallbackDurationMs(lrc);
-          if (ms) {
-            setLrcDuration(getTrackKey(song), ms);
-            const queueId = 'queueId' in song && typeof (song as { queueId?: string }).queueId === 'string'
-              ? (song as { queueId: string }).queueId
-              : undefined;
-            if (queueId) reportTrackDurationToServer(queueId, ms);
-          }
+          if (ms) setLrcDuration(getTrackKey(song), ms);
         }
       })
       .catch(() => setLyrics([]));

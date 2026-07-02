@@ -9,7 +9,9 @@ import {
   resolveAutoSkipThresholdSeconds,
   resolveDisplayDurationSeconds,
   resolveReferenceDurationSeconds,
+  resolveTrackDurationSeconds,
 } from '../hooks/useTrackDuration';
+import { reportTrackDurationToServer } from '../lib/reportTrackDuration';
 import type { QueueItem } from '../types';
 import { getAudioController } from '../lib/audioController';
 import {
@@ -112,8 +114,9 @@ function capSeekTime(time: number, song: QueueItem | null | undefined, mediaDur:
   const sources = durationSources();
   const referenceDur = song ? resolveReferenceDurationSeconds(song, sources) : 0;
   const fileDur = isTrustedMediaDurationSeconds(mediaDur, referenceDur) ? mediaDur : 0;
+  const trackDur = song ? resolveTrackDurationSeconds(song, sources) : 0;
   const displayDur = song ? resolveDisplayDurationSeconds(song, sources) : fileDur;
-  const capBase = displayDur || fileDur || (song ? resolveAutoSkipThresholdSeconds(song, sources, fileDur) : 0);
+  const capBase = fileDur || trackDur || (song ? resolveAutoSkipThresholdSeconds(song, sources, fileDur) : 0) || displayDur;
   const cap = capBase > 0 ? capBase - 0.05 : time;
   return Math.max(0, Math.min(time, cap));
 }
@@ -131,7 +134,9 @@ function syncMediaDuration(audio: HTMLAudioElement, song: QueueItem, trackKey: s
   const dur = audio.duration;
   const referenceDur = resolveReferenceDurationSeconds(song, durationSources());
   if (!isTrustedMediaDurationSeconds(dur, referenceDur)) return;
-  useAudioStore.getState().setMediaDuration(trackKey, Math.round(dur * 1000));
+  const durationMs = Math.round(dur * 1000);
+  useAudioStore.getState().setMediaDuration(trackKey, durationMs);
+  reportTrackDurationToServer(song.queueId, durationMs);
 }
 
 interface UseAudioPlayerOptions {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+/** Mineradio makeDotTexture — 干净圆点 */
 export function makeDotTexture(): THREE.CanvasTexture {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 64;

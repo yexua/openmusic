@@ -75,7 +75,8 @@ export function buildCoverEdgeTexture(source: CanvasImageSource): HTMLCanvasElem
       const cy = (y / (H - 1) - 0.5) * 2.0;
       const rr = Math.sqrt(cx * cx + cy * cy);
       const centerBias = 1.0 - Math.min(1, rr * 0.75);
-      depth[i] = Math.min(1.0, blur[i] * 0.45 + centerBias * 0.55);
+      const raw = blur[i] * 0.45 + centerBias * 0.55;
+      depth[i] = Math.min(1.0, Math.max(0, 0.5 + (raw - 0.5) * 1.28));
     }
   }
 

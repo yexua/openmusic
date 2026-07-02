@@ -1653,7 +1653,7 @@ export default function Room() {
                   <button
                     type="button"
                     onClick={() => setVisualFxOpen(true)}
-                    className="flex items-center justify-center rounded-lg p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                    className="flex items-center gap-1.5 text-xs text-netease-muted hover:text-white transition-colors px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-netease-card"
                     aria-label="视觉参数"
                   >
                     <Settings2 className="h-4 w-4" />

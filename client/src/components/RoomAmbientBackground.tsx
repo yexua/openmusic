@@ -1,13 +1,13 @@
 import { Suspense, lazy } from 'react';
 import { getCoverUrl } from '../api/music';
-import type { Song } from '../types';
+import type { QueueItem } from '../types';
 import { ROOM_VISUAL_MODE_META, type RoomVisualMode } from '../lib/roomVisualPreset';
 import AmbientCoverLayers from './AmbientCoverLayers';
 
 const GalaxyBackground = lazy(() => import('./galaxy/GalaxyBackground3D'));
 
 interface Props {
-  song: Pick<Song, 'id' | 'source' | 'pic'> | null | undefined;
+  song: Pick<QueueItem, 'queueId' | 'id' | 'source' | 'pic' | 'url'> | null | undefined;
   visualMode: RoomVisualMode;
   isPlaying: boolean;
 }
@@ -29,7 +29,7 @@ export default function RoomAmbientBackground({ song, visualMode, isPlaying }: P
       ) : null}
       {showGalaxy ? (
         <Suspense fallback={null}>
-          <GalaxyBackground coverUrl={coverUrl} preset={shaderPreset} isPlaying={isPlaying} />
+          <GalaxyBackground coverUrl={coverUrl} preset={shaderPreset} isPlaying={isPlaying} song={song} />
         </Suspense>
       ) : null}
       {visualMode === 'cover-bg' && !coverUrl ? (
