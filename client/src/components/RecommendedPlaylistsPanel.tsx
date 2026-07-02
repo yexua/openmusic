@@ -24,6 +24,7 @@ interface Props {
   onSelectPlaylist: (playlist: PlaylistSearchItem) => Promise<void>;
   compact?: boolean;
   hideHeader?: boolean;
+  immersive?: boolean;
 }
 
 function PlatformGlassTag({
@@ -142,12 +143,14 @@ function PlaylistCard({
   isLoading,
   disabled,
   compact,
+  immersive = false,
   onSelect,
 }: {
   playlist: PlaylistSearchItem;
   isLoading: boolean;
   disabled: boolean;
   compact: boolean;
+  immersive?: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -158,7 +161,9 @@ function PlaylistCard({
       className={`group flex flex-col transition-colors disabled:opacity-60 ${
         compact
           ? 'w-20 flex-shrink-0 items-center text-center'
-          : 'h-full w-full items-center rounded-lg p-0.5 text-center hover:bg-netease-card/60'
+          : immersive
+            ? 'mineradio-glass-card h-full w-full items-center rounded-xl p-1 text-center'
+            : 'h-full w-full items-center rounded-lg p-0.5 text-center hover:bg-netease-card/60'
       }`}
     >
       <PlaylistCover playlist={playlist} isLoading={isLoading} compact={compact} />
@@ -173,7 +178,12 @@ function PlaylistCard({
   );
 }
 
-export default function RecommendedPlaylistsPanel({ onSelectPlaylist, compact = false, hideHeader = false }: Props) {
+export default function RecommendedPlaylistsPanel({
+  onSelectPlaylist,
+  compact = false,
+  hideHeader = false,
+  immersive = false,
+}: Props) {
   const cached = peekRecommendedPlaylists();
   const [neteasePlaylists, setNeteasePlaylists] = useState(
     () => cached?.neteasePlaylists ?? CURATED_NETEASE,
@@ -234,6 +244,7 @@ export default function RecommendedPlaylistsPanel({ onSelectPlaylist, compact = 
             isLoading={loadingKey === playlistKey(playlist)}
             disabled={Boolean(loadingKey)}
             compact
+            immersive={immersive}
             onSelect={() => void handleSelect(playlist)}
           />
         ))}
@@ -252,6 +263,7 @@ export default function RecommendedPlaylistsPanel({ onSelectPlaylist, compact = 
         isLoading={loadingKey === playlistKey(playlist)}
         disabled={Boolean(loadingKey)}
         compact={false}
+        immersive={immersive}
         onSelect={() => void handleSelect(playlist)}
       />
     );

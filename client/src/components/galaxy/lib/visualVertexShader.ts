@@ -7,7 +7,7 @@ uniform float uVinylSpin;
 uniform float uColorBoost, uScatter, uCoverRes, uBgFade;
 uniform float uHasCover, uHasDepth, uEdgeEnabled, uAiBoost;
 uniform float uMouseActive, uPixel, uColorMixT, uLoading;
-uniform sampler2D uCoverTex, uPrevCoverTex, uEdgeTex, uRippleTex;
+uniform sampler2D uCoverTex, uPrevCoverTex, uEdgeTex, uPrevEdgeTex, uRippleTex;
 uniform int uRippleCount;
 uniform vec2 uMouseXY, uHandXY;
 uniform float uHandActive, uGestureGrip;
@@ -70,7 +70,10 @@ vec3 samplePrevCoverColor(vec2 uv) {
 }
 
 vec4 sampleEdgeColor(vec2 uv) {
- return texture2D(uEdgeTex, safeCoverUv(uv));
+ vec2 safe = safeCoverUv(uv);
+ vec4 newEdge = texture2D(uEdgeTex, safe);
+ vec4 prevEdge = texture2D(uPrevEdgeTex, safe);
+ return mix(prevEdge, newEdge, clamp(uColorMixT, 0.0, 1.0));
 }
 
  float rippleSumAt(vec2 p, out float maxAmp) {

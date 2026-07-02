@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import {
   applyParticleSpinDrag,
+  setGalaxyPointerField,
   particlePointerSpin,
   particleSpin,
   resetParticleRotationTarget,
@@ -48,7 +49,18 @@ export default function GalaxyOrbitControls({ preset }: Props) {
       unlockGalaxyOrbitCenter(orbit);
     };
 
+    const updatePointerField = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const nx = (e.clientX - rect.left) / rect.width;
+      const ny = (e.clientY - rect.top) / rect.height;
+      const worldX = (nx - 0.5) * 5.0;
+      const worldY = (0.5 - ny) * 3.2;
+      setGalaxyPointerField(true, worldX, worldY);
+    };
+
     const onPointerMove = (e: PointerEvent) => {
+      updatePointerField(e);
       if (!orbit.rotating) return;
       const dx = e.clientX - orbit.last.x;
       const dy = e.clientY - orbit.last.y;
@@ -78,6 +90,11 @@ export default function GalaxyOrbitControls({ preset }: Props) {
       particlePointerSpin.active = false;
     };
 
+    const onPointerLeave = () => {
+      endDrag();
+      setGalaxyPointerField(false, -999, -999);
+    };
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       unlockGalaxyOrbitCenter(orbit);
@@ -91,17 +108,19 @@ export default function GalaxyOrbitControls({ preset }: Props) {
     };
 
     canvas.addEventListener('pointerdown', beginDrag);
+    canvas.addEventListener('pointermove', updatePointerField);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', endDrag);
-    canvas.addEventListener('pointerleave', endDrag);
+    canvas.addEventListener('pointerleave', onPointerLeave);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('dblclick', onDblClick);
 
     return () => {
       canvas.removeEventListener('pointerdown', beginDrag);
+      canvas.removeEventListener('pointermove', updatePointerField);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', endDrag);
-      canvas.removeEventListener('pointerleave', endDrag);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('dblclick', onDblClick);
     };

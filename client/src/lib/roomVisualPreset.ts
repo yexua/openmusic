@@ -14,7 +14,6 @@ export type RoomVisualMode =
   | 'off';
 
 export const ROOM_VISUAL_DISPLAY_ORDER: RoomVisualMode[] = [
-  'off',
   'cover-bg',
   'emily',
   'galaxy',
@@ -83,9 +82,37 @@ export interface RoomVisualFxSettings {
   cinemaShake: number;
   bloom: boolean;
   edge: boolean;
+  cinema: boolean;
+  floatLayer: boolean;
   cameraDistance: number;
   visualTintColor: string;
   visualTintMode: 'auto' | 'custom';
+  lyricGlowStrength: number;
+  lyricScale: number;
+  lyricOffsetX: number;
+  lyricOffsetY: number;
+  lyricOffsetZ: number;
+  lyricTiltX: number;
+  lyricTiltY: number;
+  lyricGlow: boolean;
+  lyricGlowBeat: boolean;
+  lyricGlowParticles: boolean;
+  lyricCameraLock: boolean;
+  particleLyrics: boolean;
+  shelfMode: 'off' | 'side' | 'stage';
+  shelfCameraMode: 'dynamic' | 'static';
+  shelfPresence: 'auto' | 'always';
+  shelfShowPodcasts: boolean;
+  shelfMergeCollections: boolean;
+  shelfAccentColor: string;
+  shelfSize: number;
+  shelfOffsetX: number;
+  shelfOffsetY: number;
+  shelfOffsetZ: number;
+  shelfAngleY: number;
+  shelfOpacity: number;
+  shelfBgOpacity: number;
+  cameraInteraction: 'off' | 'gesture';
 }
 
 export const DEFAULT_ROOM_VISUAL_FX: RoomVisualFxSettings = {
@@ -102,10 +129,56 @@ export const DEFAULT_ROOM_VISUAL_FX: RoomVisualFxSettings = {
   cinemaShake: 0.5,
   bloom: false,
   edge: false,
+  cinema: true,
+  floatLayer: true,
   cameraDistance: 1.0,
   visualTintColor: '#9db8cf',
   visualTintMode: 'auto',
+  lyricGlowStrength: 0.28,
+  lyricScale: 1.0,
+  lyricOffsetX: 0,
+  lyricOffsetY: 0,
+  lyricOffsetZ: 0,
+  lyricTiltX: 0,
+  lyricTiltY: 0,
+  lyricGlow: true,
+  lyricGlowBeat: true,
+  lyricGlowParticles: false,
+  lyricCameraLock: false,
+  particleLyrics: true,
+  shelfMode: 'off',
+  shelfCameraMode: 'static',
+  shelfPresence: 'always',
+  shelfShowPodcasts: false,
+  shelfMergeCollections: false,
+  shelfAccentColor: '#f4d28a',
+  shelfSize: 1.0,
+  shelfOffsetX: 0,
+  shelfOffsetY: 0,
+  shelfOffsetZ: 0,
+  shelfAngleY: -15,
+  shelfOpacity: 1.0,
+  shelfBgOpacity: 0.9,
+  cameraInteraction: 'off',
 };
+
+/** 歌词 Tab「恢复默认」使用的字段 */
+export function defaultLyricFxPatch(): Partial<RoomVisualFxSettings> {
+  return {
+    lyricGlow: DEFAULT_ROOM_VISUAL_FX.lyricGlow,
+    lyricGlowBeat: DEFAULT_ROOM_VISUAL_FX.lyricGlowBeat,
+    lyricGlowParticles: DEFAULT_ROOM_VISUAL_FX.lyricGlowParticles,
+    lyricGlowStrength: DEFAULT_ROOM_VISUAL_FX.lyricGlowStrength,
+    lyricScale: DEFAULT_ROOM_VISUAL_FX.lyricScale,
+    lyricOffsetX: DEFAULT_ROOM_VISUAL_FX.lyricOffsetX,
+    lyricOffsetY: DEFAULT_ROOM_VISUAL_FX.lyricOffsetY,
+    lyricOffsetZ: DEFAULT_ROOM_VISUAL_FX.lyricOffsetZ,
+    lyricTiltX: DEFAULT_ROOM_VISUAL_FX.lyricTiltX,
+    lyricTiltY: DEFAULT_ROOM_VISUAL_FX.lyricTiltY,
+    particleLyrics: DEFAULT_ROOM_VISUAL_FX.particleLyrics,
+    lyricCameraLock: DEFAULT_ROOM_VISUAL_FX.lyricCameraLock,
+  };
+}
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -129,15 +202,15 @@ export function readRoomVisualMode(): RoomVisualMode {
       if (!raw) continue;
       if (LEGACY_MODE_ALIASES[raw]) return LEGACY_MODE_ALIASES[raw];
       if (ROOM_VISUAL_MODES.includes(raw as RoomVisualMode)) {
-        return raw as RoomVisualMode;
+        return raw === 'off' ? 'cover-bg' : (raw as RoomVisualMode);
       }
       const legacy = LEGACY_NUMERIC_MODE[Number(raw)];
-      if (legacy) return legacy;
+      if (legacy) return legacy === 'off' ? 'cover-bg' : legacy;
     }
   } catch {
     // ignore
   }
-  return 'off';
+  return 'cover-bg';
 }
 
 /** 与 Room 页实际渲染的背景一致 */
@@ -202,6 +275,38 @@ export function readRoomVisualFx(): RoomVisualFxSettings {
       cameraDistance: clamp(Number(parsed.cameraDistance) || DEFAULT_ROOM_VISUAL_FX.cameraDistance, 0.55, 1.65),
       visualTintColor: normalizeHexColor(parsed.visualTintColor || '', DEFAULT_ROOM_VISUAL_FX.visualTintColor),
       visualTintMode: parsed.visualTintMode === 'custom' ? 'custom' : 'auto',
+      cinema: parsed.cinema !== false,
+      floatLayer: parsed.floatLayer !== false,
+      lyricGlowStrength: clamp(
+        Number(parsed.lyricGlowStrength) ?? DEFAULT_ROOM_VISUAL_FX.lyricGlowStrength,
+        0,
+        0.85,
+      ),
+      lyricScale: clamp(Number(parsed.lyricScale) || DEFAULT_ROOM_VISUAL_FX.lyricScale, 0.35, 1.65),
+      lyricOffsetX: clamp(Number(parsed.lyricOffsetX) ?? 0, -2, 2),
+      lyricOffsetY: clamp(Number(parsed.lyricOffsetY) ?? 0, -1.2, 1.35),
+      lyricOffsetZ: clamp(Number(parsed.lyricOffsetZ) ?? 0, -1.6, 1.6),
+      lyricTiltX: clamp(Number(parsed.lyricTiltX) ?? 0, -42, 42),
+      lyricTiltY: clamp(Number(parsed.lyricTiltY) ?? 0, -42, 42),
+      lyricGlow: parsed.lyricGlow !== false,
+      lyricGlowBeat: parsed.lyricGlowBeat !== false,
+      lyricGlowParticles: parsed.lyricGlowParticles === true,
+      lyricCameraLock: parsed.lyricCameraLock === true,
+      particleLyrics: parsed.particleLyrics !== false,
+      shelfMode: parsed.shelfMode === 'side' || parsed.shelfMode === 'stage' ? parsed.shelfMode : 'off',
+      shelfCameraMode: parsed.shelfCameraMode === 'dynamic' ? 'dynamic' : 'static',
+      shelfPresence: parsed.shelfPresence === 'auto' ? 'auto' : 'always',
+      shelfShowPodcasts: parsed.shelfShowPodcasts === true,
+      shelfMergeCollections: parsed.shelfMergeCollections === true,
+      shelfAccentColor: normalizeHexColor(parsed.shelfAccentColor || '', DEFAULT_ROOM_VISUAL_FX.shelfAccentColor),
+      shelfSize: clamp(Number(parsed.shelfSize) || DEFAULT_ROOM_VISUAL_FX.shelfSize, 0.65, 1.45),
+      shelfOffsetX: clamp(Number(parsed.shelfOffsetX) ?? 0, -1.6, 1.6),
+      shelfOffsetY: clamp(Number(parsed.shelfOffsetY) ?? 0, -1.6, 1.6),
+      shelfOffsetZ: clamp(Number(parsed.shelfOffsetZ) ?? 0, -1.6, 1.6),
+      shelfAngleY: clamp(Number(parsed.shelfAngleY) ?? DEFAULT_ROOM_VISUAL_FX.shelfAngleY, -35, 15),
+      shelfOpacity: clamp(Number(parsed.shelfOpacity) || DEFAULT_ROOM_VISUAL_FX.shelfOpacity, 0.2, 1),
+      shelfBgOpacity: clamp(Number(parsed.shelfBgOpacity) || DEFAULT_ROOM_VISUAL_FX.shelfBgOpacity, 0.15, 1),
+      cameraInteraction: parsed.cameraInteraction === 'gesture' ? 'gesture' : 'off',
     };
   } catch {
     return { ...DEFAULT_ROOM_VISUAL_FX };

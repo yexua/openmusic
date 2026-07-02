@@ -50,7 +50,7 @@ export function getCurrentBeatMap(): BeatMap | null {
   return currentBeatMap;
 }
 
-export function resetGalaxyBeatMapState(): void {
+export function resetGalaxyBeatMapState(soft = false): void {
   beatMapToken++;
   if (analysisTimer) {
     clearTimeout(analysisTimer);
@@ -62,7 +62,7 @@ export function resetGalaxyBeatMapState(): void {
   cameraBeatNextIdx = 0;
   scheduledBeatPulse = 0;
   scheduledBeatFlag = false;
-  resetGalaxyCinema();
+  if (!soft) resetGalaxyCinema();
 }
 
 function beatEventTime(ev: BeatMapEvent | BeatMapPulseEvent | number): number {

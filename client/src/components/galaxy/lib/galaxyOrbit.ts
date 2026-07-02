@@ -42,6 +42,14 @@ export type GalaxyOrbitState = {
   recentering: boolean;
   centerLocked: boolean;
   lookAt: THREE.Vector3;
+  focusZone: {
+    type: 'none' | 'search' | 'queue' | 'chat' | 'cardHover';
+    theta: number;
+    phi: number;
+    radius: number;
+    lookAt: THREE.Vector3;
+    ease: number;
+  };
 };
 
 export function createGalaxyOrbitState(
@@ -70,6 +78,14 @@ export function createGalaxyOrbitState(
     recentering: false,
     centerLocked: false,
     lookAt: new THREE.Vector3(0, 0, 0),
+    focusZone: {
+      type: 'none',
+      theta: base.theta,
+      phi: base.phi,
+      radius: base.radius,
+      lookAt: new THREE.Vector3(0, 0, 0),
+      ease: 0.1,
+    },
   };
 }
 
@@ -90,6 +106,23 @@ export function unlockGalaxyOrbitCenter(orbit: GalaxyOrbitState): void {
 export function recenterGalaxyOrbit(orbit: GalaxyOrbitState): void {
   orbit.centerLocked = true;
   orbit.recentering = true;
+}
+
+export function setGalaxyOrbitFocusZone(
+  orbit: GalaxyOrbitState,
+  type: GalaxyOrbitState['focusZone']['type'],
+  config?: Partial<Omit<GalaxyOrbitState['focusZone'], 'type'>>,
+): void {
+  if (type === 'none') {
+    orbit.focusZone.type = 'none';
+    return;
+  }
+  orbit.focusZone.type = type;
+  if (config?.theta !== undefined) orbit.focusZone.theta = config.theta;
+  if (config?.phi !== undefined) orbit.focusZone.phi = config.phi;
+  if (config?.radius !== undefined) orbit.focusZone.radius = config.radius;
+  if (config?.lookAt) orbit.focusZone.lookAt.copy(config.lookAt);
+  if (config?.ease !== undefined) orbit.focusZone.ease = config.ease;
 }
 
 /** Mineradio updateCinema → orbit.cine* */
@@ -135,9 +168,14 @@ export function updateGalaxyOrbitCamera(
   let targetTheta: number;
   let targetPhi: number;
   let targetRadius: number;
-  const tLookAt = orbit.centerLocked ? new THREE.Vector3(0, 0, 0) : orbit.lookAt;
+  let tLookAt = orbit.lookAt;
 
-  if (orbit.centerLocked) {
+  if (orbit.focusZone.type !== 'none') {
+    targetTheta = orbit.focusZone.theta;
+    targetPhi = clampRange(orbit.focusZone.phi, orbit.minPhi, orbit.maxPhi);
+    targetRadius = clampRange(orbit.focusZone.radius, orbit.minRadius, orbit.maxRadius);
+    tLookAt = orbit.focusZone.lookAt;
+  } else if (orbit.centerLocked) {
     targetTheta = orbit.baselineTheta + orbit.cineTheta;
     targetPhi = clampRange(orbit.baselinePhi + orbit.cinePhi, orbit.minPhi, orbit.maxPhi);
     targetRadius = clampRange(
@@ -155,7 +193,7 @@ export function updateGalaxyOrbitCamera(
     );
   }
 
-  let focusEase = 0.1;
+  let focusEase = orbit.focusZone.type !== 'none' ? orbit.focusZone.ease : 0.1;
   let radiusEase = 0.07;
   if (kick.punch > 0.01) {
     focusEase = Math.max(focusEase, 0.12 + kick.punch * 0.12);

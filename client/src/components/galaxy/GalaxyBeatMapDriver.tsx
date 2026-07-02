@@ -8,7 +8,7 @@ import {
   cancelBeatMapAnalysis,
   resetGalaxyBeatMapState,
 } from './lib/galaxyBeatMap';
-import { resetGalaxyAudioVisualState } from './lib/galaxyAudio';
+import { resetGalaxyAudioVisualStateForSongChange } from './lib/galaxyAudio';
 
 interface Props {
   song: Pick<QueueItem, 'queueId' | 'id' | 'source' | 'url'> | null | undefined;
@@ -38,8 +38,8 @@ export default function GalaxyBeatMapDriver({ song, isPlaying }: Props) {
 
     if (lastQueueIdRef.current !== queueId) {
       lastQueueIdRef.current = queueId;
-      resetGalaxyAudioVisualState();
-      resetGalaxyBeatMapState();
+      resetGalaxyAudioVisualStateForSongChange();
+      resetGalaxyBeatMapState(true);
     }
 
     let cancelled = false;

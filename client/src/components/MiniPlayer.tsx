@@ -21,11 +21,17 @@ interface Props {
   onExpand: () => void;
   transparentBar?: boolean;
   barClassName?: string;
+  variant?: 'default' | 'immersive';
 }
 
 
 
-export default function MiniPlayer({ onExpand, transparentBar = true, barClassName }: Props) {
+export default function MiniPlayer({
+  onExpand,
+  transparentBar = true,
+  barClassName,
+  variant = 'default',
+}: Props) {
 
   const room = useRoomStore((s) => s.room);
 
@@ -90,6 +96,132 @@ export default function MiniPlayer({ onExpand, transparentBar = true, barClassNa
 
 
   if (!current && !fmLoading) return null;
+
+  if (variant === 'immersive') {
+    if (fmLoading) {
+      return (
+        <div id="bottom-bar" className="mineradio-bottom-bar visible room-immersive-bottom mx-auto">
+          <div className="mineradio-progress-bar">
+            <div className="mineradio-progress-fill" style={{ width: '0%' }} />
+          </div>
+          <div className="mineradio-controls">
+            <div className="control-cluster actions">
+              <div className="control-track">
+                <div className="control-cover cover-empty" aria-hidden />
+                <div className="control-meta">
+                  <div className="control-title">私人漫游</div>
+                  <div className="control-artist">正在加载…</div>
+                </div>
+              </div>
+            <div className="mineradio-ctrl-btn mineradio-ctrl-btn-placeholder" aria-hidden />
+            </div>
+            <div className="control-cluster transport">
+              <button type="button" className="mineradio-play-btn" disabled aria-label="播放控制">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </button>
+            </div>
+            <div className="control-cluster modes">
+            <div className="mineradio-ctrl-btn mineradio-ctrl-btn-placeholder" aria-hidden />
+              <div className="mineradio-time-display">0:00 / 0:00</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (!current) return null;
+
+    return (
+      <div id="bottom-bar" className="mineradio-bottom-bar visible room-immersive-bottom mx-auto">
+        {(skipError || skipMsg) && (
+          <p className={`mb-1 text-center text-[10px] ${skipMsg ? 'text-amber-300' : 'text-red-300'}`}>
+            {skipMsg || skipError}
+          </p>
+        )}
+        <ProgressBar
+          progress={progress}
+          duration={duration}
+          onSeek={handleSeek}
+          disabled={!duration}
+          variant="mineradio"
+        />
+        <div className="mineradio-controls">
+          <div className="control-cluster actions">
+            <button type="button" className="control-track text-left" onClick={onExpand}>
+              <SongCover
+                song={current}
+                size="tiny"
+                eager
+                className="control-cover"
+              />
+              <div className="control-meta">
+                <div className="control-title">{current.name}</div>
+                <div className="control-artist">{current.artist}</div>
+              </div>
+            </button>
+            <FavoriteButton
+              song={current}
+              className="mineradio-ctrl-btn text-white/65 hover:text-rose-300"
+              iconClassName="h-4 w-4"
+            />
+          </div>
+
+          <div className="control-cluster transport">
+            <Tooltip content={canControlPlayback ? '暂停/播放' : isPlaying ? '房主正在播放' : '房主已暂停'}>
+              <button
+                type="button"
+                onClick={canControlPlayback ? handlePlayPause : undefined}
+                disabled={trackLoading || !canControlPlayback}
+                className="mineradio-play-btn"
+                aria-label="播放控制"
+              >
+                {trackLoading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : isPlaying ? (
+                  <Pause className="h-5 w-5" />
+                ) : (
+                  <Play className="ml-0.5 h-5 w-5" />
+                )}
+              </button>
+            </Tooltip>
+
+            {canControlPlayback ? (
+              <Tooltip content="切歌">
+                <button
+                  type="button"
+                  onClick={handleSkip}
+                  disabled={trackLoading}
+                  className="mineradio-ctrl-btn"
+                  aria-label="切歌"
+                >
+                  {trackLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SkipForward className="h-4 w-4" />}
+                </button>
+              </Tooltip>
+            ) : (
+              <Tooltip content={hasPendingSkip ? '已申请切歌' : '申请切歌'}>
+                <button
+                  type="button"
+                  onClick={handleRequestSkip}
+                  disabled={hasPendingSkip}
+                  className="mineradio-ctrl-btn"
+                  aria-label="申请切歌"
+                >
+                  <SkipForward className="h-4 w-4" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
+          <div className="control-cluster modes">
+            <div className="mineradio-time-display">
+              {formatDuration(displayTime)}
+              {duration > 0 ? ` / ${formatDuration(duration)}` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const playerBarClass = barClassName
     ? `fixed bottom-0 left-0 right-0 z-40 border-t pb-[env(safe-area-inset-bottom,0px)] ${barClassName}`

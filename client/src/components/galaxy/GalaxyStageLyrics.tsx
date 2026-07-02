@@ -1,0 +1,128 @@
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import { getActiveLyricPair } from '../../api/music';
+import { useSmoothPlaybackTime } from '../../hooks/useSmoothPlaybackTime';
+import { useTrackLyrics } from '../../hooks/useTrackLyrics';
+import { roomVisualFxLive } from '../../lib/roomVisualFxLive';
+import { useRoomStore } from '../../stores/roomStore';
+import { getGalaxyBeatCameraKick } from './lib/galaxyCinema';
+import { getCachedGalaxyAudioBands, resumeGalaxyAudioContext } from './lib/galaxyAudio';
+import {
+  buildLyricMaskAsset,
+  buildLyricMesh,
+  createStageLyricRoot,
+  disposeLyricMesh,
+  disposeStageLyricRoot,
+  type LyricMeshGroup,
+} from './lib/galaxyStageLyricMaterial';
+import {
+  createStageLyricsRuntime,
+  updateStageLyrics3D,
+  type StageLyricStageRoot,
+} from './lib/galaxyStageLyrics3D';
+
+interface Props {
+  isPlaying: boolean;
+}
+
+/** Mineradio stageLyrics + updateStageLyrics3D */
+export default function GalaxyStageLyrics({ isPlaying }: Props) {
+  const current = useRoomStore((s) => s.room?.current ?? null);
+  const currentTime = useSmoothPlaybackTime();
+  const lyrics = useTrackLyrics(current);
+  const { current: currentLine } = getActiveLyricPair(lyrics, currentTime);
+  const { camera } = useThree();
+
+  const stageRootRef = useRef<StageLyricStageRoot | null>(null);
+  const currentMeshRef = useRef<LyricMeshGroup | null>(null);
+  const runtimeRef = useRef(createStageLyricsRuntime());
+  const prevLineRef = useRef<string | null>(null);
+
+  const stageRoot = useMemo(() => {
+    const root = createStageLyricRoot();
+    stageRootRef.current = root;
+    return root;
+  }, []);
+
+  const lyricMesh = useMemo(() => {
+    if (!currentLine) return null;
+    const mask = buildLyricMaskAsset(currentLine);
+    return buildLyricMesh(mask);
+  }, [currentLine]);
+
+  useEffect(() => {
+    const root = stageRootRef.current;
+    const prev = currentMeshRef.current;
+    if (prev && root) {
+      root.remove(prev);
+      disposeLyricMesh(prev);
+    }
+    currentMeshRef.current = lyricMesh;
+    if (lyricMesh && root) {
+      root.add(lyricMesh);
+      if (currentLine !== prevLineRef.current) {
+        lyricMesh.userData.age = 0;
+      }
+    }
+    prevLineRef.current = currentLine;
+  }, [currentLine, lyricMesh]);
+
+  useEffect(
+    () => () => {
+      const root = stageRootRef.current;
+      const mesh = currentMeshRef.current;
+      if (mesh && root) root.remove(mesh);
+      disposeLyricMesh(mesh);
+      disposeStageLyricRoot(root);
+      stageRootRef.current = null;
+      currentMeshRef.current = null;
+    },
+    [],
+  );
+
+  useFrame((state, delta) => {
+    const mesh = currentMeshRef.current;
+    const root = stageRootRef.current;
+    if (!root) return;
+
+    const fx = roomVisualFxLive.current;
+    if (!fx.particleLyrics || !mesh || !currentLine) {
+      if (mesh?.userData.lyric?.textMat) {
+        mesh.userData.lyric.textMat.uniforms.uOpacity.value = 0;
+      }
+      if (root.userData.starRiverMat) {
+        root.userData.starRiverMat.uniforms.uOpacity.value = 0;
+      }
+      return;
+    }
+
+    if (isPlaying) {
+      resumeGalaxyAudioContext();
+    }
+    const bands = isPlaying
+      ? getCachedGalaxyAudioBands()
+      : { bass: 0, mid: 0, beat: 0, energy: 0 };
+    const kick = isPlaying
+      ? getGalaxyBeatCameraKick()
+      : { thetaKick: 0, phiKick: 0, radiusKick: 0, rollKick: 0, punch: 0 };
+
+    if (root.userData.starRiverMat) {
+      root.userData.starRiverMat.uniforms.uBass.value = bands.bass;
+      root.userData.starRiverMat.uniforms.uBeat.value = bands.beat;
+    }
+
+    updateStageLyrics3D({
+      stageRoot: root,
+      currentMesh: mesh,
+      camera,
+      dt: delta,
+      time: state.clock.elapsedTime,
+      bands,
+      kick,
+      fx,
+      runtime: runtimeRef.current,
+    });
+  });
+
+  return <primitive object={stageRoot} />;
+}

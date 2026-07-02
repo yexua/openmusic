@@ -14,6 +14,7 @@ interface Props {
   preset: RoomVisualPresetId;
   isPlaying: boolean;
   song?: Pick<QueueItem, 'queueId' | 'id' | 'source' | 'url'> | null;
+  immersivePanelFocus?: 'search' | 'queue' | 'chat' | null;
 }
 
 export default function GalaxyBackground3D({
@@ -22,6 +23,7 @@ export default function GalaxyBackground3D({
   preset,
   isPlaying,
   song,
+  immersivePanelFocus = null,
 }: Props) {
   return (
     <div className={`${className} overflow-hidden bg-[#08090b]`} aria-hidden>
@@ -46,7 +48,7 @@ export default function GalaxyBackground3D({
           <GalaxyBeatMapDriver song={song} isPlaying={isPlaying} />
           <GalaxyAudioDriver preset={preset} />
           <GalaxyOrbitControls preset={preset} />
-          <GalaxyCameraRig preset={preset} />
+          <GalaxyCameraRig preset={preset} immersivePanelFocus={immersivePanelFocus} />
           <GalaxyParticles coverUrl={coverUrl} preset={preset} isPlaying={isPlaying} />
         </Suspense>
       </Canvas>

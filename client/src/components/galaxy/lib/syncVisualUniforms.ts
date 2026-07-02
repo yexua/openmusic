@@ -22,6 +22,10 @@ export function syncGalaxyFxUniforms(uniforms: UniformBag, fx: RoomVisualFxSetti
   uniforms.uBgFade.value = fx.bgFade;
   uniforms.uBloomStrength.value = effectiveBloomStrength(fx);
   uniforms.uEdgeEnabled.value = fx.edge ? 1 : 0;
-  (uniforms.uTintColor.value as THREE.Color).set(fx.visualTintColor);
-  uniforms.uTintStrength.value = fx.visualTintMode === 'custom' ? 0.42 : 0;
+  if (fx.visualTintMode === 'custom') {
+    (uniforms.uTintColor.value as THREE.Color).set(fx.visualTintColor);
+    uniforms.uTintStrength.value = 0.42;
+  } else {
+    uniforms.uTintStrength.value = 0.38;
+  }
 }

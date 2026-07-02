@@ -10,6 +10,7 @@ interface Props {
   fillClassName?: string;
   thumbClassName?: string;
   showThumb?: boolean;
+  variant?: 'default' | 'mineradio';
 }
 
 export default function ProgressBar({
@@ -22,6 +23,7 @@ export default function ProgressBar({
   fillClassName = 'bg-white',
   thumbClassName = 'w-3 h-3',
   showThumb = false,
+  variant = 'default',
 }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -85,6 +87,24 @@ export default function ProgressBar({
   useEffect(() => () => clearReleaseTimer(), [clearReleaseTimer]);
 
   const displayProgress = Math.max(0, Math.min(100, dragProgress ?? progress));
+  const draggingActive = dragProgress !== null;
+
+  if (variant === 'mineradio') {
+    return (
+      <div
+        ref={barRef}
+        className={`mineradio-progress-bar ${draggingActive ? 'is-dragging' : ''} ${disabled ? 'cursor-default' : ''}`}
+        onPointerDown={handlePointerDown}
+        role="slider"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={displayProgress}
+      >
+        <div className="mineradio-progress-fill" style={{ width: `${displayProgress}%` }} />
+        <div className="mineradio-progress-thumb" style={{ left: `${displayProgress}%` }} aria-hidden />
+      </div>
+    );
+  }
 
   return (
     <div

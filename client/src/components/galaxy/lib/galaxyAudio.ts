@@ -133,6 +133,16 @@ function resetRealtimeBeatEngine(): void {
 
 /** 切歌或重置视觉时调用，避免上一首的节拍状态污染新歌 */
 export function resetGalaxyAudioVisualState(): void {
+  resetGalaxyAudioBandsState();
+  resetGalaxyCinema();
+}
+
+/** 切歌时重置频谱/节拍，但保留电影镜头平滑状态，避免画面猛跳 */
+export function resetGalaxyAudioVisualStateForSongChange(): void {
+  resetGalaxyAudioBandsState();
+}
+
+function resetGalaxyAudioBandsState(): void {
   smooth.bass = smooth.mid = smooth.treble = smooth.beat = smooth.energy = 0;
   bassPeak = 0.12;
   midPeak = 0.1;
@@ -144,7 +154,6 @@ export function resetGalaxyAudioVisualState(): void {
   lastAdvanceMs = -1;
   cachedBands = { bass: 0, mid: 0, treble: 0, beat: 0, energy: 0, smoothBass: 0, rippleBass: 0 };
   resetRealtimeBeatEngine();
-  resetGalaxyCinema();
 }
 
 function attachPlayListener(): void {

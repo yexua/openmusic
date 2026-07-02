@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
-import { Search, Loader2, Copy, Check, LogOut, X, Heart, Plus, Download, ListMusic, Upload, History, ListPlus, Pencil, Lock, LockOpen, ChevronLeft, ChevronRight, SlidersHorizontal, Settings2, Shield } from 'lucide-react';
+import { Search, Loader2, Copy, Check, LogOut, X, Heart, Plus, Download, ListMusic, Upload, History, ListPlus, Pencil, Lock, LockOpen, ChevronLeft, ChevronRight, SlidersHorizontal, Shield, Maximize2 } from 'lucide-react';
 
 import { searchAllSongs, getAvailableSources, type SearchFilterMode } from '../api/music';
 import { importPlaylist, searchPlaylists, type PlaylistSearchItem, type PlaylistPlatform, type PlaylistChannelFilter as PlaylistChannelFilterMode } from '../api/music/playlist';
@@ -17,6 +17,7 @@ import type { MusicProviderMeta } from '../api/music/types';
 
 import { useRoomStore } from '../stores/roomStore';
 import { usePureModeStore } from '../stores/pureModeStore';
+import { useImmersiveModeStore } from '../stores/immersiveModeStore';
 
 import { useSocket } from '../hooks/useSocket';
 import { useFavorites } from '../hooks/useFavorites';
@@ -33,6 +34,7 @@ import SongCover from '../components/SongCover';
 import QueuePanel from '../components/QueuePanel';
 
 import MiniPlayer from '../components/MiniPlayer';
+import ImmersiveExitModal from '../components/immersive/ImmersiveExitModal';
 
 import RoomAmbientBackground from '../components/RoomAmbientBackground';
 
@@ -82,12 +84,13 @@ import RoleBadge from '../components/RoleBadge';
 import { copyToClipboard } from '../lib/copyToClipboard';
 import { rememberRoomVisit } from '../lib/recentRooms';
 import { buildRoomShareText } from '../lib/roomShare';
-import RoomVisualPresetSelect from '../components/RoomVisualPresetSelect';
 import RoomVisualFxPanel from '../components/RoomVisualFxPanel';
+import RoomImmersiveShell from '../components/immersive/RoomImmersiveShell';
+import ImmersiveFxSettingsPanel from '../components/immersive/ImmersiveFxSettingsPanel';
+import { isMobileDevice } from '../lib/audioUnlock';
 import {
   readRoomVisualFx,
   roomAmbientGlassClass,
-  ROOM_VISUAL_MODE_META,
   readRoomVisualMode,
   writeRoomVisualMode,
   shouldProxySongPlaybackUrl,
@@ -95,6 +98,14 @@ import {
   type RoomVisualFxSettings,
   type RoomVisualMode,
 } from '../lib/roomVisualPreset';
+import {
+  immersiveGlassChip,
+  immersiveGlassListRow,
+  immersiveGlassModal,
+  immersiveGlassScrim,
+  immersiveGlassSheetHeader,
+  immersiveGlassListFooter,
+} from '../lib/immersiveGlass';
 import {
   commitRoomVisualFx,
   patchRoomVisualFx,
@@ -206,6 +217,8 @@ export default function Room() {
 
   const pureMode = usePureModeStore((s) => s.enabled);
   const setPureModeEnabled = usePureModeStore((s) => s.setEnabled);
+  const immersiveMode = useImmersiveModeStore((s) => s.enabled);
+  const setImmersiveModeEnabled = useImmersiveModeStore((s) => s.setEnabled);
   const [purePlayerHidden, setPurePlayerHidden] = useState(false);
 
   const roomPageTitle = room?.name ? `${room.name} 房间` : '正在加入房间';
@@ -258,7 +271,9 @@ export default function Room() {
   const [playlistSearchBackup, setPlaylistSearchBackup] = useState<PlaylistSearchBackup | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [hotRefreshKey, setHotRefreshKey] = useState(0);
+  const [immersiveExitPromptOpen, setImmersiveExitPromptOpen] = useState(false);
   const [visualMode, setVisualMode] = useState<RoomVisualMode>(readRoomVisualMode);
+  const [immersivePanelFocus, setImmersivePanelFocus] = useState<'search' | 'queue' | 'chat' | null>(null);
   const [visualFx, setVisualFx] = useState<RoomVisualFxSettings>(() => {
     const fx = readRoomVisualFx();
     roomVisualFxLive.current = fx;
@@ -267,6 +282,7 @@ export default function Room() {
   const [visualFxOpen, setVisualFxOpen] = useState(false);
   const [visualFxDragging, setVisualFxDragging] = useState(false);
   const isLgUp = useMediaQuery('(min-width: 1024px)');
+  const showImmersiveEntry = isLgUp && !isMobileDevice() && !pureMode;
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [songHistoryOpen, setSongHistoryOpen] = useState(false);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
@@ -1065,6 +1081,7 @@ export default function Room() {
     const next = !pureMode;
     setPureModeEnabled(next);
     if (next) {
+      setImmersiveModeEnabled(false);
       setVisualFxOpen(false);
       setPurePlayerHidden(false);
       if (searchMode !== 'song') {
@@ -1078,7 +1095,61 @@ export default function Room() {
       clearPureModeDisguise(roomPageTitle);
       showToast('已退出纯净模式', 'success');
     }
-  }, [pureMode, setPureModeEnabled, searchMode, roomPageTitle, showToast]);
+  }, [pureMode, setPureModeEnabled, setImmersiveModeEnabled, searchMode, roomPageTitle, showToast]);
+
+  const applyVisualMode = useCallback(
+    (mode: RoomVisualMode, options?: { notifyProxyChange?: boolean }) => {
+      if (!isLgUp) return;
+      const prevNeedsProxy = shouldProxySongPlaybackUrl(visualMode);
+      const nextNeedsProxy = shouldProxySongPlaybackUrl(mode);
+      setVisualMode(mode);
+      writeRoomVisualMode(mode);
+      if (options?.notifyProxyChange !== false && prevNeedsProxy !== nextNeedsProxy && room?.current) {
+        showToast('背景已切换，音频设置将在下一首歌曲生效', 'success');
+      }
+    },
+    [isLgUp, room?.current, showToast, visualMode],
+  );
+
+  const handleImmersiveExitKeepBackground = useCallback(() => {
+    setImmersiveExitPromptOpen(false);
+    setImmersiveModeEnabled(false);
+    setVisualFxOpen(false);
+    showToast('已退出沉浸模式，保留当前动态背景', 'success');
+  }, [setImmersiveModeEnabled, showToast]);
+
+  const handleImmersiveExitToCover = useCallback(() => {
+    setImmersiveExitPromptOpen(false);
+    applyVisualMode('cover-bg', { notifyProxyChange: false });
+    setImmersiveModeEnabled(false);
+    setVisualFxOpen(false);
+    showToast('已退出沉浸模式，并切回封面背景', 'success');
+  }, [applyVisualMode, setImmersiveModeEnabled, showToast]);
+
+  const handleImmersiveToggle = useCallback(() => {
+    if (immersiveMode) {
+      setImmersiveExitPromptOpen(true);
+      return;
+    }
+    if (visualMode === 'cover-bg') {
+      applyVisualMode('emily', { notifyProxyChange: false });
+    }
+    setImmersiveModeEnabled(true);
+    setVisualFxOpen(false);
+    showToast('已进入沉浸模式', 'success');
+  }, [applyVisualMode, immersiveMode, setImmersiveModeEnabled, showToast, visualMode]);
+
+  useEffect(() => {
+    if (!showImmersiveEntry && immersiveMode) {
+      setImmersiveModeEnabled(false);
+    }
+  }, [showImmersiveEntry, immersiveMode, setImmersiveModeEnabled]);
+
+  useEffect(() => {
+    if (pureMode && immersiveMode) {
+      setImmersiveModeEnabled(false);
+    }
+  }, [pureMode, immersiveMode, setImmersiveModeEnabled]);
 
   useEffect(() => {
     if (pureMode) {
@@ -1106,14 +1177,7 @@ export default function Room() {
   }, [pureMode]);
 
   const handleVisualModeChange = (mode: RoomVisualMode) => {
-    if (!isLgUp) return;
-    const prevNeedsProxy = shouldProxySongPlaybackUrl(visualMode);
-    const nextNeedsProxy = shouldProxySongPlaybackUrl(mode);
-    setVisualMode(mode);
-    writeRoomVisualMode(mode);
-    if (prevNeedsProxy !== nextNeedsProxy && room?.current) {
-      showToast('背景已切换，音频设置将在下一首歌曲生效', 'success');
-    }
+    applyVisualMode(mode, { notifyProxyChange: true });
   };
 
   useEffect(() => {
@@ -1296,7 +1360,7 @@ export default function Room() {
     </div>
   );
 
-  const renderPlaylistSearchList = (fillHeight = false) => (
+  const renderPlaylistSearchList = (fillHeight = false, immersiveGlass = false) => (
     <div
       className={`flex min-h-0 flex-col ${fillHeight ? 'h-full' : ''}`}
       style={fillHeight ? undefined : { height: RESULT_BODY_HEIGHT }}
@@ -1306,7 +1370,9 @@ export default function Room() {
           {playlistSearchResults.map((playlist) => (
             <Tooltip key={`${playlist.platform}-${playlist.id}`} content="双击查看歌单" side="bottom">
               <div
-                className="group flex cursor-pointer items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-netease-card/80 sm:gap-3 sm:p-3"
+                className={`group flex cursor-pointer items-center gap-2 rounded-xl p-2.5 transition-colors sm:gap-3 sm:p-3 ${
+                  immersiveGlass ? immersiveGlassListRow : 'hover:bg-netease-card/80'
+                }`}
                 onDoubleClick={() => {
                   if (!playlistSearchLoading && !searching) {
                     void handlePlaylistImport(playlist.platform, playlist.id);
@@ -1347,7 +1413,11 @@ export default function Room() {
           </div>
         )}
       </div>
-      <div className="mt-auto flex-shrink-0 space-y-2 overflow-visible border-t border-netease-border/40 bg-netease-bg/90 pt-3">
+      <div
+        className={`mt-auto flex-shrink-0 space-y-2 overflow-visible pt-3 ${
+          immersiveGlass ? immersiveGlassListFooter : 'border-t border-netease-border/40 bg-netease-bg/90'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <PageSizeSelect
             value={playlistSearchPageSize}
@@ -1413,6 +1483,128 @@ export default function Room() {
     </div>
   );
 
+  const immersiveSearchBar = (
+    <div className="w-full">
+      <div id="search-box" className="mineradio-glass-search-box">
+        <Search className="mr-2.5 h-4 w-4 flex-shrink-0 text-white/30" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder={searchMode === 'playlist' ? '搜索网易/QQ歌单...' : '搜索歌曲、歌手...'}
+          className="min-w-0 flex-1 border-none bg-transparent text-[13.5px] tracking-wide text-white outline-none placeholder:text-white/22"
+        />
+        <button
+          type="button"
+          onClick={handleSearch}
+          disabled={!query.trim() || (searchMode === 'song' && searching)}
+          className="ml-3 flex-shrink-0 rounded-full px-3 py-1 text-[11px] font-medium text-[#eafffb] transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {externalSearchButtonLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '搜索'}
+        </button>
+      </div>
+      <div className="mt-2 flex justify-center">
+        <div id="search-mode-tabs" className="mineradio-search-mode-tabs">
+        {([
+          ['song', '歌曲'],
+          ['playlist', '歌单'],
+        ] as const).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => handleSearchModeChange(mode)}
+            className={searchMode === mode ? 'active' : undefined}
+          >
+            {label}
+          </button>
+        ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const immersiveSearchExtras = (
+    <div className="flex items-center justify-center gap-1.5 overflow-x-auto">
+      <button
+        type="button"
+        onClick={() => setSongHistoryOpen(true)}
+        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] text-white/55 ${immersiveGlassChip}`}
+      >
+        播放历史
+      </button>
+      <button
+        type="button"
+        onClick={() => setRecommendDrawerOpen(true)}
+        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] text-white/55 ${immersiveGlassChip}`}
+      >
+        热榜歌单
+      </button>
+      <button
+        type="button"
+        onClick={openFavorites}
+        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] text-white/55 ${immersiveGlassChip}`}
+      >
+        我的收藏
+      </button>
+      <button
+        type="button"
+        onClick={() => setPlaylistImportOpen(true)}
+        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] text-white/55 ${immersiveGlassChip}`}
+      >
+        导入歌单
+      </button>
+    </div>
+  );
+
+  const renderSearchResultsCore = (fillHeight = true, immersiveGlass = false) => (
+    <div className={`flex min-h-0 flex-col ${fillHeight ? 'h-full flex-1' : ''}`}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2">
+        <p className="min-w-0 truncate text-xs text-white/55">{renderResultsSummary()}</p>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {showPlaylistSearch && (
+            <PlaylistChannelFilter value={playlistChannelFilter} onChange={handlePlaylistChannelChange} />
+          )}
+          {!searching && searchableCount > 0 && !isPlaylistResults && activeSearchMode === 'song' && (
+            <SearchFilterSelect value={searchFilterMode} onChange={handleSearchFilterChange} />
+          )}
+          {showSongListResults && renderBulkAddPageButton('px-2.5 py-1.5')}
+          <button
+            type="button"
+            onClick={clearSearchResults}
+            className="rounded-lg px-2 py-1 text-xs text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            清除
+          </button>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {searching && searchedKeyword && !showPlaylistSearch && <SearchSkeleton fillHeight />}
+        {showPlaylistSkeleton && (
+          <SearchSkeleton fillHeight count={playlistSearchPageSize} showPaginationFooter={false} />
+        )}
+        {!searching && !playlistSearchLoading && searchedKeyword && !hasPlaylistSearchResults && results.length === 0 && (
+          <p className="animate-fade-in py-10 text-center text-white/45">
+            {showPlaylistEmpty ? '没有找到相关歌单' : isPlaylistResults ? '歌单为空或链接无效' : '换个关键词试试'}
+          </p>
+        )}
+        {hasPlaylistSearchResults && renderPlaylistSearchList(true, immersiveGlass)}
+        {!searching && searchedKeyword && !showPlaylistSearch && (
+          <SongResultList
+            results={results}
+            addingId={addingId}
+            onAdd={handleAdd}
+            keyword={searchedKeyword}
+            alwaysShowActions
+            fillHeight
+            immersiveGlass={immersiveGlass}
+            onPageResultsChange={handleListPageResultsChange}
+          />
+        )}
+      </div>
+    </div>
+  );
+
 
 
   return (
@@ -1423,10 +1615,56 @@ export default function Room() {
         song={room.current}
         visualMode={displayVisualMode}
         isPlaying={Boolean(room.isPlaying)}
+        immersivePanelFocus={immersiveMode ? immersivePanelFocus : null}
       />
 
+      {immersiveMode && (
+        <RoomImmersiveShell
+          onExit={() => setImmersiveExitPromptOpen(true)}
+          onPanelFocusChange={setImmersivePanelFocus}
+          searchBar={immersiveSearchBar}
+          searchExtras={immersiveSearchExtras}
+          showSearchResults={showDesktopSearchOverlay}
+          searchResults={
+            showDesktopSearchOverlay ? (
+              <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                {renderSearchResultsCore(true, true)}
+              </div>
+            ) : null
+          }
+          queueContent={<QueuePanel fillHeight />}
+          chatContent={<ChatPanel />}
+          settingsPanel={
+            <ImmersiveFxSettingsPanel
+              value={visualFx}
+              onPatch={patchVisualFx}
+              onReset={resetVisualFx}
+              visualMode={visualMode}
+              onVisualModeChange={handleVisualModeChange}
+              onDraggingChange={setVisualFxDragging}
+            />
+          }
+          player={
+            room.current || room.randomLoading ? (
+              <MiniPlayer variant="immersive" onExpand={() => setShowPlayer(true)} />
+            ) : (
+              <div className="mineradio-glass-bar px-4 py-3 text-center text-xs text-white/45">等待播放…</div>
+            )
+          }
+        />
+      )}
+
+      {immersiveExitPromptOpen ? (
+        <ImmersiveExitModal
+          open={immersiveExitPromptOpen}
+          onKeepBackground={handleImmersiveExitKeepBackground}
+          onSwitchCoverBg={handleImmersiveExitToCover}
+          onCancel={() => setImmersiveExitPromptOpen(false)}
+        />
+      ) : null}
+
       <RoomVisualFxPanel
-        open={visualFxOpen}
+        open={visualFxOpen && !immersiveMode}
         value={visualFx}
         onPatch={patchVisualFx}
         onReset={resetVisualFx}
@@ -1494,7 +1732,7 @@ export default function Room() {
 
       <div
         className={`room-page-chrome relative z-10 flex min-h-0 flex-1 flex-col transition-opacity duration-200 ${
-          visualFxDragging ? 'pointer-events-none opacity-0' : ''
+          immersiveMode || visualFxDragging ? 'pointer-events-none opacity-0' : ''
         }`}
       >
       <header className={`relative z-30 flex-shrink-0 border-b px-3 py-2.5 sm:px-4 sm:py-3 safe-top ${ambientGlassClass}`}>
@@ -1648,21 +1886,21 @@ export default function Room() {
                 </button>
               </Tooltip>
 
-              {isLgUp && !pureMode && ROOM_VISUAL_MODE_META[visualMode].hasSettings ? (
-                <Tooltip side="bottom" content="视觉参数">
+              {showImmersiveEntry ? (
+                <Tooltip side="bottom" content={immersiveMode ? '退出沉浸模式' : '沉浸模式：全屏视觉，边缘滑出点歌/队列/聊天'}>
                   <button
                     type="button"
-                    onClick={() => setVisualFxOpen(true)}
-                    className="flex items-center gap-1.5 text-xs text-netease-muted hover:text-white transition-colors px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-netease-card"
-                    aria-label="视觉参数"
+                    onClick={handleImmersiveToggle}
+                    className={`flex items-center gap-1.5 text-xs transition-colors px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-netease-card ${
+                      immersiveMode ? 'text-violet-300' : 'text-netease-muted hover:text-white'
+                    }`}
+                    aria-label={immersiveMode ? '退出沉浸模式' : '进入沉浸模式'}
+                    aria-pressed={immersiveMode}
                   >
-                    <Settings2 className="h-4 w-4" />
+                    <Maximize2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">{immersiveMode ? '沉浸中' : '沉浸模式'}</span>
                   </button>
                 </Tooltip>
-              ) : null}
-
-              {isLgUp && !pureMode ? (
-                <RoomVisualPresetSelect value={visualMode} onChange={handleVisualModeChange} />
               ) : null}
 
               <Tooltip side="bottom" content="分享房间">
@@ -1808,7 +2046,7 @@ export default function Room() {
       </div>
 
       {/* 搜索结果弹层（移动端底部抽屉 / 桌面居中弹窗） */}
-      {showDesktopSearchOverlay && (
+      {showDesktopSearchOverlay && !immersiveMode && (
         <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-start px-0 lg:px-4 pt-0 lg:pt-24 pb-0 lg:pb-8">
           <button
             type="button"
@@ -1890,44 +2128,72 @@ export default function Room() {
         </div>
       )}
 
-      {playlistImportOpen && (
-        <PlaylistImportModal
-          open={playlistImportOpen}
-          loading={searching}
-          qqImportEnabled={qqImportEnabled}
-          onClose={() => setPlaylistImportOpen(false)}
-          onImport={handlePlaylistImport}
-        />
-      )}
+      {playlistImportOpen &&
+        createPortal(
+          <PlaylistImportModal
+            open={playlistImportOpen}
+            loading={searching}
+            qqImportEnabled={qqImportEnabled}
+            immersive={immersiveMode}
+            onClose={() => setPlaylistImportOpen(false)}
+            onImport={handlePlaylistImport}
+          />,
+          document.body,
+        )}
 
-      {songHistoryOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-24 pb-8">
-          <button type="button" className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={() => setSongHistoryOpen(false)} aria-label="关闭播放历史" />
-          <div className="relative z-10 flex max-h-[min(72vh,680px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/10 glass shadow-2xl">
-            <div className="flex items-center justify-between border-b border-netease-border/50 px-4 py-3">
-              <div>
-                <h2 className="text-sm font-medium text-white">播放历史</h2>
-                <p className="mt-0.5 text-xs text-netease-muted">最近 {songHistoryItems.length} 首，可复播或收藏</p>
+      {songHistoryOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-24 pb-8">
+            <button
+              type="button"
+              className={`absolute inset-0 ${immersiveMode ? immersiveGlassScrim : 'bg-black/65 backdrop-blur-sm'}`}
+              onClick={() => setSongHistoryOpen(false)}
+              aria-label="关闭播放历史"
+            />
+            <div
+              className={`relative z-10 flex max-h-[min(72vh,680px)] w-full max-w-2xl flex-col overflow-hidden rounded-[22px] shadow-2xl ${
+                immersiveMode ? immersiveGlassModal : 'rounded-2xl border border-white/10 glass'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 ${
+                  immersiveMode ? immersiveGlassSheetHeader : 'border-b border-netease-border/50'
+                }`}
+              >
+                <div>
+                  <h2 className="text-sm font-medium text-white">播放历史</h2>
+                  <p className="mt-0.5 text-xs text-netease-muted">最近 {songHistoryItems.length} 首，可复播或收藏</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSongHistoryOpen(false)}
+                  className="rounded-lg p-1.5 text-netease-muted hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-              <button type="button" onClick={() => setSongHistoryOpen(false)} className="rounded-lg p-1.5 text-netease-muted hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {songHistoryLoading ? (
-                <div className="py-16 text-center text-sm text-netease-muted">
-                  <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin opacity-40" />
-                  加载播放历史…
-                </div>
-              ) : !songHistoryItems.length ? (
-                <div className="py-16 text-center text-sm text-netease-muted">
-                  <History className="mx-auto mb-2 h-8 w-8 opacity-40" />
-                  暂无播放历史
-                </div>
-              ) : (
-                <div className="space-y-2">
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                {songHistoryLoading ? (
+                  <div className="py-16 text-center text-sm text-netease-muted">
+                    <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin opacity-40" />
+                    加载播放历史…
+                  </div>
+                ) : !songHistoryItems.length ? (
+                  <div className="py-16 text-center text-sm text-netease-muted">
+                    <History className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                    暂无播放历史
+                  </div>
+                ) : (
+                  <div className="space-y-2">
                   {songHistoryItems.map((song: SongHistoryItem, index: number) => {
                     const key = songKey(song);
                     return (
-                      <div key={`${song.requestedAt}-${key}-${index}`} className="group flex items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-netease-card/80 sm:gap-3 sm:p-3">
+                      <div
+                        key={`${song.requestedAt}-${key}-${index}`}
+                        className={`group flex items-center gap-2 rounded-xl p-2.5 transition-colors sm:gap-3 sm:p-3 ${
+                          immersiveMode ? immersiveGlassListRow : 'hover:bg-netease-card/80'
+                        }`}
+                      >
                         <SongCover song={song} className="h-12 w-12 flex-shrink-0 rounded-lg bg-netease-card object-cover" />
                         <div className="min-w-0 flex-1 space-y-0.5">
                           <div className="flex min-w-0 items-center gap-2">
@@ -1954,14 +2220,29 @@ export default function Room() {
               )}
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
 
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-24 pb-8">
-          <button type="button" className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={() => setFavoritesOpen(false)} aria-label="关闭收藏" />
-          <div className="relative z-10 flex max-h-[min(72vh,680px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/10 glass shadow-2xl">
-            <div className="flex items-center justify-between border-b border-netease-border/50 px-4 py-3">
+      {favoritesOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[90] flex items-start justify-center px-4 pt-24 pb-8">
+          <button
+            type="button"
+            className={`absolute inset-0 ${immersiveMode ? immersiveGlassScrim : 'bg-black/65 backdrop-blur-sm'}`}
+            onClick={() => setFavoritesOpen(false)}
+            aria-label="关闭收藏"
+          />
+          <div
+            className={`relative z-10 flex max-h-[min(72vh,680px)] w-full max-w-2xl flex-col overflow-hidden rounded-[22px] shadow-2xl ${
+              immersiveMode ? immersiveGlassModal : 'rounded-2xl border border-white/10 glass'
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between px-4 py-3 ${
+                immersiveMode ? immersiveGlassSheetHeader : 'border-b border-netease-border/50'
+              }`}
+            >
               <div>
                 <h2 className="text-sm font-medium text-white">我的收藏</h2>
                 <p className="mt-0.5 text-xs text-netease-muted">
@@ -2030,7 +2311,12 @@ export default function Room() {
                   {pagedFavorites.map((song) => {
                     const key = songKey(song);
                     return (
-                      <div key={key} className="group flex items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-netease-card/80 sm:gap-3 sm:p-3">
+                      <div
+                        key={key}
+                        className={`group flex items-center gap-2 rounded-xl p-2.5 transition-colors sm:gap-3 sm:p-3 ${
+                          immersiveMode ? immersiveGlassListRow : 'hover:bg-netease-card/80'
+                        }`}
+                      >
                         <Tooltip content="取消收藏">
                           <button
                             type="button"
@@ -2068,7 +2354,11 @@ export default function Room() {
               )}
             </div>
             {!favoritesLoading && filteredFavorites.length > 0 && (
-              <div className="flex-shrink-0 space-y-2 border-t border-netease-border/40 bg-netease-bg/90 px-4 py-3">
+              <div
+                className={`flex-shrink-0 space-y-2 px-4 py-3 ${
+                  immersiveMode ? immersiveGlassListFooter : 'border-t border-netease-border/40 bg-netease-bg/90'
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <PageSizeSelect
                     value={favoritePageSize}
@@ -2103,25 +2393,27 @@ export default function Room() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
 
-
-
-      {(room.current || room.randomLoading) && !(pureMode && purePlayerHidden) && (
+      {(room.current || room.randomLoading) && !(pureMode && purePlayerHidden) && !immersiveMode && (
         <MiniPlayer onExpand={() => setShowPlayer(true)} barClassName={ambientGlassClass} />
       )}
 
       {pureMode && isLgUp && <PureModeChatDock />}
-
-      <RecommendedPlaylistsDrawer
-        open={recommendDrawerOpen}
-        onClose={() => setRecommendDrawerOpen(false)}
-        onSelectPlaylist={handleRecommendPlaylistSelect}
-      />
       </div>
 
-
+      {recommendDrawerOpen &&
+        createPortal(
+          <RecommendedPlaylistsDrawer
+            open={recommendDrawerOpen}
+            immersive={immersiveMode}
+            onClose={() => setRecommendDrawerOpen(false)}
+            onSelectPlaylist={handleRecommendPlaylistSelect}
+          />,
+          document.body,
+        )}
 
       {showPlayer && room.current && (
 

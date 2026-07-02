@@ -386,6 +386,17 @@ export function tickGalaxyCinema(dt: number): BeatCameraKick {
   };
 }
 
+/** 读取当前鼓点镜头 kick（由 GalaxyCameraRig 每帧 tick） */
+export function getGalaxyBeatCameraKick(): BeatCameraKick {
+  return {
+    punch: beatCam.punch,
+    thetaKick: beatCam.thetaKick,
+    phiKick: beatCam.phiKick,
+    radiusKick: beatCam.radiusKick,
+    rollKick: beatCam.rollKick,
+  };
+}
+
 /** 空闲呼吸 + 鼓点 kick 合成镜头偏移 */
 export function applyGalaxyCinemaOffset(
   base: { radius: number; phi: number; theta: number },

@@ -1,5 +1,8 @@
 /** Mineradio gestureRotation / particleSpin — 拖拽旋转粒子层 */
 
+import type * as THREE from 'three';
+import { galaxyOrbitRef } from './galaxyOrbit';
+
 const PARTICLE_POINTER_SPIN_X = 0.0032;
 const PARTICLE_POINTER_SPIN_Y = 0.0034;
 const PARTICLE_SPIN_MAX = 6.2;
@@ -15,6 +18,25 @@ export const particlePointerSpin = {
   lastY: 0,
   lastT: 0,
 };
+
+export const galaxyPointerField = {
+  active: false,
+  x: -999,
+  y: -999,
+};
+
+export function releaseGalaxyPointerInteraction(): void {
+  galaxyOrbitRef.current.rotating = false;
+  particlePointerSpin.active = false;
+  particleSpin.vx = 0;
+  particleSpin.vy = 0;
+}
+
+export function setGalaxyPointerField(active: boolean, x: number, y: number): void {
+  galaxyPointerField.active = active;
+  galaxyPointerField.x = x;
+  galaxyPointerField.y = y;
+}
 
 function clampParticleSpinVelocity(v: number): number {
   if (!Number.isFinite(v)) return 0;
@@ -43,13 +65,14 @@ export function resetParticleRotationTarget(syncVisual = false): void {
   }
 }
 
-let particleRootGroup: { rotation: { x: number; y: number; set: (x: number, y: number, z: number) => void } } | null =
-  null;
+let particleRootGroup: THREE.Object3D | null = null;
 
-export function registerParticleRootGroup(
-  group: { rotation: { x: number; y: number; set: (x: number, y: number, z: number) => void } } | null,
-): void {
+export function registerParticleRootGroup(group: THREE.Object3D | null): void {
   particleRootGroup = group;
+}
+
+export function getParticleRootGroup(): THREE.Object3D | null {
+  return particleRootGroup;
 }
 
 function rebaseParticleRotationAxis(axis: 'x' | 'y'): void {

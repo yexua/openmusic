@@ -10,9 +10,15 @@ interface Props {
   song: Pick<QueueItem, 'queueId' | 'id' | 'source' | 'pic' | 'url'> | null | undefined;
   visualMode: RoomVisualMode;
   isPlaying: boolean;
+  immersivePanelFocus?: 'search' | 'queue' | 'chat' | null;
 }
 
-export default function RoomAmbientBackground({ song, visualMode, isPlaying }: Props) {
+export default function RoomAmbientBackground({
+  song,
+  visualMode,
+  isPlaying,
+  immersivePanelFocus = null,
+}: Props) {
   const coverUrl = song ? getCoverUrl(song, 'medium') : null;
   const meta = ROOM_VISUAL_MODE_META[visualMode];
   const shaderPreset = meta.shaderPreset;
@@ -29,7 +35,13 @@ export default function RoomAmbientBackground({ song, visualMode, isPlaying }: P
       ) : null}
       {showGalaxy ? (
         <Suspense fallback={null}>
-          <GalaxyBackground coverUrl={coverUrl} preset={shaderPreset} isPlaying={isPlaying} song={song} />
+          <GalaxyBackground
+            coverUrl={coverUrl}
+            preset={shaderPreset}
+            isPlaying={isPlaying}
+            song={song}
+            immersivePanelFocus={immersivePanelFocus}
+          />
         </Suspense>
       ) : null}
       {visualMode === 'cover-bg' && !coverUrl ? (

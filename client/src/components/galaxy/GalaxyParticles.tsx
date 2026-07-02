@@ -20,7 +20,9 @@ import { buildCoverEdgeTexture } from './lib/buildCoverEdgeTexture';
 import {
   coverTextureSizeForResolution,
   makeSquareCoverCanvas,
+  sampleCoverAccentColor,
   snapshotCoverToPrevTexture,
+  snapshotEdgeToPrevTexture,
 } from './lib/coverCanvas';
 import { startCoverColorMixTween } from './lib/coverColorMix';
 import { tweenCoverDepthUniforms } from './lib/coverDepthTween';
@@ -32,10 +34,14 @@ import {
 } from './lib/galaxyPresetTransition';
 import { PARTICLE_VERTEX_SHADER } from './lib/visualVertexShader';
 import {
+  galaxyPointerField,
+  getParticleRootGroup,
   registerParticleRootGroup,
   syncParticleGroupRotation,
 } from './lib/galaxyGestureRotation';
 import { galaxyOrbitRef } from './lib/galaxyOrbit';
+import GalaxyStageLyrics from './GalaxyStageLyrics';
+import GalaxyFloatingSongCard from './GalaxyFloatingSongCard';
 
 const DEFAULT_COVER = '#1c1c28';
 const FLOAT_COUNT = 1300;
@@ -79,6 +85,7 @@ type SharedUniforms = {
   uCoverTex: { value: THREE.Texture };
   uPrevCoverTex: { value: THREE.Texture };
   uEdgeTex: { value: THREE.Texture };
+  uPrevEdgeTex: { value: THREE.Texture };
   uRippleTex: { value: THREE.Texture };
   uRippleCount: { value: number };
   uDotTex: { value: THREE.Texture };
@@ -129,6 +136,8 @@ function createFloatLayer(uniforms: SharedUniforms) {
   const colors = new Float32Array(FLOAT_COUNT * 3);
   const rand = new Float32Array(FLOAT_COUNT);
   const amps = new Float32Array(FLOAT_COUNT);
+  const sampleU = new Float32Array(FLOAT_COUNT);
+  const sampleV = new Float32Array(FLOAT_COUNT);
 
   for (let i = 0; i < FLOAT_COUNT; i++) {
     const halo = i < FLOAT_COUNT * 0.76;
@@ -159,6 +168,8 @@ function createFloatLayer(uniforms: SharedUniforms) {
     colors[i * 3 + 1] = white;
     colors[i * 3 + 2] = white;
     rand[i] = Math.random();
+    sampleU[i] = Math.random();
+    sampleV[i] = Math.random();
   }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -229,8 +240,8 @@ void main(){
     const w = coverCanvas.width;
     const h = coverCanvas.height;
     for (let i = 0; i < FLOAT_COUNT; i++) {
-      const sx = Math.floor(Math.random() * w);
-      const sy = Math.floor(Math.random() * h);
+      const sx = Math.min(w - 1, Math.max(0, Math.floor(sampleU[i] * w)));
+      const sy = Math.min(h - 1, Math.max(0, Math.floor(sampleV[i] * h)));
       const di = (sy * w + sx) * 4;
       colors[i * 3] = (img[di] / 255) * 0.95;
       colors[i * 3 + 1] = (img[di + 1] / 255) * 0.95;
@@ -370,6 +381,7 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
   const edgeTexRef = useRef<THREE.Texture>(makeEdgePlaceholderTexture());
   const coverTex = useRef<THREE.Texture>(makePlaceholderTexture());
   const prevCoverTex = useRef<THREE.Texture>(makePlaceholderTexture());
+  const prevEdgeTex = useRef<THREE.Texture>(makeEdgePlaceholderTexture());
   const presetRef = useRef(preset);
   const bloomRef = useRef<THREE.Points>(null);
   const floatRef = useRef<THREE.Points | null>(null);
@@ -412,13 +424,14 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
     uHandActive: { value: 0 },
     uGestureGrip: { value: 0 },
     uTintColor: { value: new THREE.Color(roomVisualFxLive.current.visualTintColor) },
-    uTintStrength: { value: roomVisualFxLive.current.visualTintMode === 'custom' ? 0.42 : 0 },
+    uTintStrength: { value: roomVisualFxLive.current.visualTintMode === 'custom' ? 0.42 : 0.38 },
     uPixel: { value: Math.min(window.devicePixelRatio || 1, 1.75) },
     uColorMixT: { value: 1 },
     uLoading: { value: 0 },
     uCoverTex: { value: coverTex.current },
     uPrevCoverTex: { value: prevCoverTex.current },
     uEdgeTex: { value: edgeTexRef.current },
+    uPrevEdgeTex: { value: prevEdgeTex.current },
     uRippleTex: { value: rippleSystem.texture },
     uRippleCount: { value: 0 },
     uDotTex: { value: dotTex },
@@ -496,13 +509,19 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
     const applyLoadedCover = (img: HTMLImageElement) => {
       const fx = roomVisualFxLive.current;
       const texSize = coverTextureSizeForResolution(fx.coverResolution);
+      const hasPrevCover = uniforms.uHasCover.value > 0.5 && coverTex.current?.image;
 
-      if (uniforms.uHasCover.value > 0.5 && coverTex.current?.image) {
+      if (hasPrevCover) {
         snapshotCoverToPrevTexture(
           coverTex.current.image as CanvasImageSource,
           prevCoverTex.current,
         );
         uniforms.uPrevCoverTex.value = prevCoverTex.current;
+        const prevEdgeImg = edgeTexRef.current?.image;
+        if (prevEdgeImg instanceof HTMLCanvasElement && prevEdgeImg.width > 4) {
+          snapshotEdgeToPrevTexture(prevEdgeImg, prevEdgeTex.current);
+          uniforms.uPrevEdgeTex.value = prevEdgeTex.current;
+        }
       }
 
       const cv = makeSquareCoverCanvas(img, texSize);
@@ -513,6 +532,10 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
       coverTex.current = tex;
       uniforms.uCoverTex.value = tex;
       uniforms.uHasCover.value = 1;
+
+      if (fx.visualTintMode === 'auto') {
+        (uniforms.uTintColor.value as THREE.Color).set(sampleCoverAccentColor(cv));
+      }
 
       floatLayer.refreshColorsFromCover(cv);
       backCoverLayer.refreshColorsFromCover(cv);
@@ -526,16 +549,24 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
       edgeTexRef.current = nextEdge;
       uniforms.uEdgeTex.value = nextEdge;
 
+      const mixMs = preset === 0 ? 520 : 1400;
       depthTweenCancelRef.current?.();
-      depthTweenCancelRef.current = tweenCoverDepthUniforms(uniforms, 1, 0.55, 180);
+      if (hasPrevCover) {
+        uniforms.uHasDepth.value = 1;
+        uniforms.uAiBoost.value = 0.55;
+      } else {
+        depthTweenCancelRef.current = tweenCoverDepthUniforms(uniforms, 1, 0.55, 180);
+      }
 
-      colorMixCancelRef.current = startCoverColorMixTween(
-        uniforms,
-        preset === 0 ? 520 : 1400,
-      );
+      colorMixCancelRef.current?.();
+      if (hasPrevCover) {
+        colorMixCancelRef.current = startCoverColorMixTween(uniforms, mixMs);
+      } else {
+        uniforms.uColorMixT.value = 1;
+      }
 
       if (prevMain && prevMain !== prevCoverTex.current) prevMain.dispose();
-      if (prevEdge && prevEdge !== nextEdge) prevEdge.dispose();
+      if (prevEdge && prevEdge !== nextEdge && prevEdge !== prevEdgeTex.current) prevEdge.dispose();
     };
 
     if (!coverUrl) {
@@ -585,6 +616,12 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
   useFrame((state, delta) => {
     const currentFx = roomVisualFxLive.current;
     syncGalaxyFxUniforms(uniforms, currentFx);
+    uniforms.uMouseActive.value +=
+      ((galaxyPointerField.active ? 1 : 0) - (uniforms.uMouseActive.value as number)) * Math.min(1, delta * 7.5);
+    (uniforms.uMouseXY.value as THREE.Vector2).lerp(
+      new THREE.Vector2(galaxyPointerField.x, galaxyPointerField.y),
+      Math.min(1, delta * 9),
+    );
 
     const nextGrid = gridForResolution(currentFx.coverResolution);
     if (nextGrid !== gridRef.current) {
@@ -592,8 +629,22 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
       setParticleGrid(nextGrid);
       const cached = coverImageCacheRef.current;
       if (cached && uniforms.uHasCover.value > 0.5) {
+        snapshotCoverToPrevTexture(
+          coverTex.current.image as CanvasImageSource,
+          prevCoverTex.current,
+        );
+        uniforms.uPrevCoverTex.value = prevCoverTex.current;
+        const prevEdgeImg = edgeTexRef.current?.image;
+        if (prevEdgeImg instanceof HTMLCanvasElement && prevEdgeImg.width > 4) {
+          snapshotEdgeToPrevTexture(prevEdgeImg, prevEdgeTex.current);
+          uniforms.uPrevEdgeTex.value = prevEdgeTex.current;
+        }
+
         const texSize = coverTextureSizeForResolution(currentFx.coverResolution);
         const cv = makeSquareCoverCanvas(cached, texSize);
+        if (currentFx.visualTintMode === 'auto') {
+          (uniforms.uTintColor.value as THREE.Color).set(sampleCoverAccentColor(cv));
+        }
         const prevMain = coverTex.current;
         const tex = new THREE.CanvasTexture(cv);
         applyCoverTextureSettings(tex);
@@ -613,10 +664,10 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
         colorMixCancelRef.current?.();
         colorMixCancelRef.current = startCoverColorMixTween(
           uniforms,
-          preset === 0 ? 300 : 520,
+          preset === 0 ? 520 : 1400,
         );
         if (prevMain && prevMain !== prevCoverTex.current) prevMain.dispose();
-        if (prevEdge && prevEdge !== nextEdge) prevEdge.dispose();
+        if (prevEdge && prevEdge !== nextEdge && prevEdge !== prevEdgeTex.current) prevEdge.dispose();
       }
     }
 
@@ -664,7 +715,7 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
       bloomRef.current.visible = effectiveBloomStrength(currentFx) > 0;
     }
     if (floatRef.current) {
-      floatRef.current.visible = emilyLayers;
+      floatRef.current.visible = emilyLayers && currentFx.floatLayer;
     }
     if (backCoverRef.current) {
       backCoverRef.current.visible = emilyLayers;
@@ -677,6 +728,11 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
     }
 
     syncParticleGroupRotation(delta, galaxyOrbitRef.current.centerLocked);
+
+    const particleRoot = getParticleRootGroup();
+    if (particleRoot && floatRef.current) {
+      floatRef.current.rotation.copy(particleRoot.rotation);
+    }
   });
 
   useEffect(
@@ -694,12 +750,15 @@ export default function GalaxyParticles({ coverUrl, preset, isPlaying }: Props) 
       edgeTexRef.current.dispose();
       coverTex.current.dispose();
       prevCoverTex.current.dispose();
+      prevEdgeTex.current.dispose();
     },
     [backCoverLayer, bloomGeometry, bloomMaterial, dotTex, floatLayer, geometry, material, rippleSystem],
   );
 
   return (
     <group ref={(node) => registerParticleRootGroup(node)}>
+      {preset === 0 ? <GalaxyFloatingSongCard /> : null}
+      <GalaxyStageLyrics isPlaying={isPlaying} />
       <primitive object={backCoverLayer.points} />
       <points
         ref={bloomRef}

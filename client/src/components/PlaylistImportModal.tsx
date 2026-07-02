@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, ChevronLeft, Clock, Trash2 } from 'lucide-react';
 import type { PlaylistPlatform } from '../api/music/playlist';
 import Tooltip from './Tooltip';
+import {
+  immersiveGlassScrim,
+  immersiveGlassModal,
+  immersiveGlassInset,
+  immersiveGlassInput,
+} from '../lib/immersiveGlass';
 
 const HINTS: Record<PlaylistPlatform, string> = {
   netease: '复制网易云歌单分享文案或链接粘贴到下方。',
@@ -33,6 +39,7 @@ interface Props {
   open: boolean;
   loading?: boolean;
   qqImportEnabled?: boolean;
+  immersive?: boolean;
   onClose: () => void;
   onImport: (platform: PlaylistPlatform, input: string) => void;
 }
@@ -93,6 +100,7 @@ export default function PlaylistImportModal({
   open,
   loading = false,
   qqImportEnabled = true,
+  immersive = false,
   onClose,
   onImport,
 }: Props) {
@@ -114,6 +122,20 @@ export default function PlaylistImportModal({
 
   if (!open) return null;
 
+  const scrimClass = immersive ? immersiveGlassScrim : 'bg-black/70 backdrop-blur-sm';
+  const panelClass = immersive
+    ? `${immersiveGlassModal} w-full max-w-md rounded-[22px] p-5 sm:p-6`
+    : 'glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-5 sm:p-6';
+  const platformBtnClass = immersive
+    ? `w-full rounded-xl px-4 py-3 text-sm text-white text-left transition-colors ${immersiveGlassInset}`
+    : 'w-full rounded-xl border border-white/10 bg-netease-card/80 px-4 py-3 text-sm text-white text-left hover:border-netease-red/40 hover:bg-white/5 transition-colors';
+  const historyRowClass = immersive
+    ? `group flex items-center gap-2 rounded-xl px-2.5 py-2 transition-colors ${immersiveGlassInset}`
+    : 'group flex items-center gap-2 rounded-xl bg-white/[0.03] px-2.5 py-2 hover:bg-white/[0.06]';
+  const inputClass = immersive
+    ? `w-full resize-none rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/35 transition-colors disabled:opacity-50 ${immersiveGlassInput}`
+    : 'w-full resize-none rounded-xl border border-netease-border bg-netease-card/80 px-3 py-2.5 text-sm text-white placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 transition-colors disabled:opacity-50';
+
   const canSubmit = input.trim().length > 0 && !loading;
 
   const submitImport = () => {
@@ -134,14 +156,14 @@ export default function PlaylistImportModal({
 
   if (!platform) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
         <button
           type="button"
-          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          className={`absolute inset-0 ${scrimClass}`}
           onClick={onClose}
           aria-label="关闭"
         />
-        <div className="relative w-full max-w-md glass rounded-2xl border border-white/10 shadow-2xl p-5 sm:p-6 animate-fade-in">
+        <div className={`relative animate-fade-in ${panelClass}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base sm:text-lg font-semibold text-white">导入歌单</h2>
             <button
@@ -160,7 +182,7 @@ export default function PlaylistImportModal({
             <button
               type="button"
               onClick={() => setPlatform('netease')}
-              className="w-full rounded-xl border border-white/10 bg-netease-card/80 px-4 py-3 text-sm text-white text-left hover:border-netease-red/40 hover:bg-white/5 transition-colors"
+              className={platformBtnClass}
             >
               {PLATFORM_LABELS.netease}
             </button>
@@ -169,7 +191,7 @@ export default function PlaylistImportModal({
                 type="button"
                 onClick={() => setPlatform('qq')}
                 disabled={!qqImportEnabled}
-                className="w-full rounded-xl border border-white/10 bg-netease-card/80 px-4 py-3 text-sm text-white text-left hover:border-netease-red/40 hover:bg-white/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className={`${platformBtnClass} disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 {PLATFORM_LABELS.qq}
               </button>
@@ -182,11 +204,11 @@ export default function PlaylistImportModal({
               历史导入歌单
             </div>
             {visibleHistory.length === 0 ? (
-              <p className="rounded-xl bg-white/[0.03] px-3 py-3 text-xs text-netease-muted">暂无历史记录</p>
+              <p className={`rounded-xl px-3 py-3 text-xs text-netease-muted ${immersive ? immersiveGlassInset : 'bg-white/[0.03]'}`}>暂无历史记录</p>
             ) : (
               <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
                 {visibleHistory.map((item) => (
-                  <div key={item.id} className="group flex items-center gap-2 rounded-xl bg-white/[0.03] px-2.5 py-2 hover:bg-white/[0.06]">
+                  <div key={item.id} className={historyRowClass}>
                     <Tooltip content="直接解析该歌单">
                       <button
                         type="button"
@@ -221,14 +243,14 @@ export default function PlaylistImportModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className={`absolute inset-0 ${scrimClass}`}
         onClick={onClose}
         aria-label="关闭"
       />
-      <div className="relative w-full max-w-md glass rounded-2xl border border-white/10 shadow-2xl p-5 sm:p-6 animate-fade-in">
+      <div className={`relative animate-fade-in ${panelClass}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 min-w-0">
             <button
@@ -265,7 +287,7 @@ export default function PlaylistImportModal({
             : '粘贴 QQ 音乐歌单分享链接或歌单 ID...'}
           rows={4}
           disabled={loading}
-          className="w-full resize-none rounded-xl border border-netease-border bg-netease-card/80 px-3 py-2.5 text-sm text-white placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 transition-colors disabled:opacity-50"
+          className={inputClass}
         />
 
         <div className="flex gap-2 justify-end mt-5">

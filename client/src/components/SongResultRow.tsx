@@ -5,6 +5,7 @@ import { songKey } from '../api/music';
 import SongCover from './SongCover';
 import SongRowBadges from './SongRowBadges';
 import FavoriteButton from './FavoriteButton';
+import { immersiveGlassListRow } from '../lib/immersiveGlass';
 
 interface Props {
   song: SearchResult;
@@ -13,6 +14,7 @@ interface Props {
   inQueue: boolean;
   played: boolean;
   favorited: boolean;
+  glassRow?: boolean;
   onAdd: (song: SearchResult) => void;
 }
 
@@ -23,6 +25,7 @@ function SongResultRow({
   inQueue,
   played,
   favorited,
+  glassRow = false,
   onAdd,
 }: Props) {
   const key = songKey(song);
@@ -30,7 +33,9 @@ function SongResultRow({
 
   return (
     <div
-      className="group flex cursor-pointer items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-netease-card/80 active:bg-netease-card/80 sm:gap-3 sm:p-3 [content-visibility:auto] [contain-intrinsic-size:auto_72px]"
+      className={`group flex cursor-pointer items-center gap-2 rounded-xl p-2.5 transition-colors sm:gap-3 sm:p-3 [content-visibility:auto] [contain-intrinsic-size:auto_72px] ${
+        glassRow ? immersiveGlassListRow : 'hover:bg-netease-card/80 active:bg-netease-card/80'
+      }`}
       title="双击点歌"
       onDoubleClick={() => onAdd(song)}
     >
@@ -76,6 +81,7 @@ export default memo(SongResultRow, (prev, next) => (
   && prev.inQueue === next.inQueue
   && prev.played === next.played
   && prev.favorited === next.favorited
+  && prev.glassRow === next.glassRow
   && prev.onAdd === next.onAdd
   && songKey(prev.song) === songKey(next.song)
   && prev.song.name === next.song.name

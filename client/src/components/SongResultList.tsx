@@ -11,6 +11,7 @@ import {
 } from '../lib/songResultPagination';
 import PageNumberPagination from './PageNumberPagination';
 import SongResultRow from './SongResultRow';
+import { immersiveGlassListFooter } from '../lib/immersiveGlass';
 import { useRoomSongKeySets } from '../hooks/useRoomSongKeySets';
 import { useFavorites } from '../hooks/useFavorites';
 
@@ -22,6 +23,7 @@ interface Props {
   alwaysShowActions?: boolean;
   onPageResultsChange?: (songs: SearchResult[]) => void;
   fillHeight?: boolean;
+  immersiveGlass?: boolean;
 }
 
 function SongResultList({
@@ -32,6 +34,7 @@ function SongResultList({
   alwaysShowActions = false,
   onPageResultsChange,
   fillHeight = false,
+  immersiveGlass = false,
 }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<SongResultPageSize>(getStoredSongResultPageSize);
@@ -82,6 +85,7 @@ function SongResultList({
                 inQueue={queueKeys.has(key)}
                 played={playedKeys.has(key)}
                 favorited={favoriteIds.has(key)}
+                glassRow={immersiveGlass}
                 onAdd={handleRowAdd}
               />
             );
@@ -89,7 +93,13 @@ function SongResultList({
         </div>
       </div>
 
-      <div className="mt-auto flex-shrink-0 space-y-2 overflow-visible border-t border-netease-border/40 bg-netease-bg/90 pt-3">
+      <div
+        className={`mt-auto flex-shrink-0 space-y-2 overflow-visible pt-3 ${
+          immersiveGlass
+            ? immersiveGlassListFooter
+            : 'border-t border-netease-border/40 bg-netease-bg/90'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <PageSizeSelect
             value={pageSize}
@@ -118,5 +128,6 @@ export default memo(SongResultList, (prev, next) => (
   && prev.keyword === next.keyword
   && prev.alwaysShowActions === next.alwaysShowActions
   && prev.fillHeight === next.fillHeight
+  && prev.immersiveGlass === next.immersiveGlass
   && prev.onPageResultsChange === next.onPageResultsChange
 ));
