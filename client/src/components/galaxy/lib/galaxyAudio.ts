@@ -686,10 +686,10 @@ function advanceGalaxyAudioBands(dt: number, options: GalaxyAudioReadOptions): G
   };
 }
 
-/** 同一渲染帧内只推进一次，避免多组件重复 tick；仍保持每帧采样以不漏低音上升沿 */
+/** 同一渲染帧内只推进一次；约 30Hz 采样，减轻沉浸模式 FFT 压力 */
 export function readGalaxyAudioBands(dt = 1 / 60, options: GalaxyAudioReadOptions = {}): GalaxyAudioBands {
   const now = performance.now();
-  if (now - lastAdvanceMs < 0.75) {
+  if (now - lastAdvanceMs < 32) {
     return cachedBands;
   }
   lastAdvanceMs = now;

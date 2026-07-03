@@ -88,6 +88,8 @@ export default function GalaxyFloatingSongCard() {
   const actionBusyRef = useRef<string | null>(null);
   const centerTargetRef = useRef(0);
   const centerSmoothRef = useRef(0);
+  const raycastPointerRef = useRef({ x: 0, y: 0 });
+  const raycastFrameRef = useRef(0);
   const [actionRevision, setActionRevision] = useState(0);
   const [cardCount, setCardCount] = useState(0);
 
@@ -349,24 +351,37 @@ export default function GalaxyFloatingSongCard() {
     const centerIndex = centerSmoothRef.current;
     const centerRounded = Math.round(centerIndex);
 
-    raycasterRef.current.setFromCamera(pointer, camera);
-    const visibleMeshes = cardsRef.current
-      .map((card) => card.mesh)
-      .filter((mesh) => mesh.visible);
-    const intersections = warmVisible ? raycasterRef.current.intersectObjects(visibleMeshes, false) : [];
-    const hoveredMesh = intersections[0]?.object as THREE.Mesh | undefined;
-    const hoveredIndex = hoveredMesh ? Number(hoveredMesh.userData.cardIndex ?? -1) : -1;
-    hoveredCardRef.current = hoveredIndex;
+    raycastFrameRef.current += 1;
+    const pointerMoved =
+      Math.abs(pointer.x - raycastPointerRef.current.x) > 0.003
+      || Math.abs(pointer.y - raycastPointerRef.current.y) > 0.003;
+    if (pointerMoved) {
+      raycastPointerRef.current.x = pointer.x;
+      raycastPointerRef.current.y = pointer.y;
+    }
+    const shouldRaycast = warmVisible && (pointerMoved || raycastFrameRef.current % 3 === 0);
 
-    if (hoveredIndex >= 0 && intersections[0]?.uv) {
-      const uv = intersections[0].uv!;
-      hoveredActionRef.current = hitTestFloatingSongCardAction(
-        actionRegionsRef.current[hoveredIndex] || [],
-        uv.x * 720,
-        (1 - uv.y) * 360,
-      );
-    } else {
-      hoveredActionRef.current = null;
+    let hoveredIndex = hoveredCardRef.current;
+    let hoveredAction: FloatingSongCardActionId | null = hoveredActionRef.current;
+    if (shouldRaycast) {
+      raycasterRef.current.setFromCamera(pointer, camera);
+      const visibleMeshes = cardsRef.current
+        .map((card) => card.mesh)
+        .filter((mesh) => mesh.visible);
+      const intersections = raycasterRef.current.intersectObjects(visibleMeshes, false);
+      const hoveredMesh = intersections[0]?.object as THREE.Mesh | undefined;
+      hoveredIndex = hoveredMesh ? Number(hoveredMesh.userData.cardIndex ?? -1) : -1;
+      hoveredAction = null;
+      if (hoveredIndex >= 0 && intersections[0]?.uv) {
+        const uv = intersections[0].uv!;
+        hoveredAction = hitTestFloatingSongCardAction(
+          actionRegionsRef.current[hoveredIndex] || [],
+          uv.x * 720,
+          (1 - uv.y) * 360,
+        );
+      }
+      hoveredCardRef.current = hoveredIndex;
+      hoveredActionRef.current = hoveredAction;
     }
 
     const sidePresenceTarget =
@@ -479,14 +494,14 @@ export default function GalaxyFloatingSongCard() {
       if (drawKey !== drawKeyRef.current[i]) {
         drawKeyRef.current[i] = drawKey;
         redraw();
-      } else if (isHovered || (pulseRef.current[i] || 0) > 0.01 || entry.song.isCurrent) {
+      } else if (isHovered && ((pulseRef.current[i] || 0) > 0.01 || hoveredActionRef.current)) {
         redraw();
       }
 
       const stackOpacity = pose.absD < 0.5 ? 1 : Math.max(0.22, 1 - pose.absD * 0.3);
       const passiveAlways = fx.shelfPresence === 'always';
       const mat = mesh.material as THREE.MeshBasicMaterial;
-      mat.color.setScalar(1);
+      mat.color.setScalar(passiveAlways ? (isCenter ? 1 : 0.96) : 1);
       const passiveDim = passiveAlways && !isCenter ? 0.92 : 1;
       mat.opacity = Math.min(
         1,

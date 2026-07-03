@@ -166,6 +166,70 @@ function requestCover(url: string, onReady: () => void): void {
   img.src = toProxiedMediaUrl(url);
 }
 
+function paintShelfCardChrome(
+  ctx: CanvasRenderingContext2D,
+  layout: {
+    pad: number;
+    cardW: number;
+    cardH: number;
+    coverCx: number;
+    coverCy: number;
+    coverSize: number;
+    textPanelX: number;
+    canvasW: number;
+  },
+  cardBgOpacity: number,
+): void {
+  const { pad, cardW, cardH, coverCx, coverCy, coverSize, textPanelX, canvasW } = layout;
+  makeRoundRect(ctx, pad, pad, cardW, cardH, 32);
+  ctx.fillStyle = `rgba(0,0,0,${cardBgOpacity.toFixed(3)})`;
+  ctx.fill();
+
+  ctx.save();
+  makeRoundRect(ctx, pad, pad, cardW, cardH, 32);
+  ctx.clip();
+  const grad = ctx.createLinearGradient(textPanelX, pad, canvasW, pad + cardH);
+  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(1, 'rgba(255,255,255,0.018)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(textPanelX, pad, canvasW - textPanelX - pad, cardH);
+  ctx.restore();
+
+  // 封面区只保留纯黑底，避免白色渐变 / 景深洗白专辑图
+  ctx.save();
+  makeRoundRect(ctx, coverCx, coverCy, coverSize, coverSize, 26);
+  ctx.clip();
+  ctx.fillStyle = `rgba(0,0,0,${cardBgOpacity.toFixed(3)})`;
+  ctx.fillRect(coverCx, coverCy, coverSize, coverSize);
+  ctx.restore();
+}
+
+function paintShelfCover(
+  ctx: CanvasRenderingContext2D,
+  item: FloatingSongCardItem,
+  coverCx: number,
+  coverCy: number,
+  coverSize: number,
+  onCoverRequest: () => void,
+): void {
+  const rec = item.coverUrl ? coverCache.get(item.coverUrl) : null;
+  if (rec instanceof HTMLImageElement) {
+    ctx.save();
+    makeRoundRect(ctx, coverCx, coverCy, coverSize, coverSize, 26);
+    ctx.clip();
+    ctx.drawImage(rec, coverCx, coverCy, coverSize, coverSize);
+    ctx.restore();
+    return;
+  }
+
+  makeRoundRect(ctx, coverCx, coverCy, coverSize, coverSize, 26);
+  ctx.fillStyle = 'rgba(0,0,0,0.42)';
+  ctx.fill();
+  if (item.coverUrl && rec !== 'failed') {
+    requestCover(item.coverUrl, onCoverRequest);
+  }
+}
+
 /** Mineradio shelfManager drawCard — 当前播放队列卡 */
 export function drawFloatingSongCard(
   ctx: CanvasRenderingContext2D,
@@ -187,14 +251,25 @@ export function drawFloatingSongCard(
   const cardBgOpacity = Math.min(0.98, Math.max(0.25, bgOpacity));
   const regions: FloatingSongCardActionRegion[] = [];
 
-  makeRoundRect(ctx, pad, pad, W - pad * 2, H - pad * 2, 32);
-  ctx.fillStyle = `rgba(0,0,0,${cardBgOpacity.toFixed(3)})`;
-  ctx.fill();
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
-  grad.addColorStop(1, 'rgba(255,255,255,0.018)');
-  ctx.fillStyle = grad;
-  ctx.fill();
+  const coverSize = H - pad * 2 - 8;
+  const coverCx = pad + 6;
+  const coverCy = pad + 4;
+  const tx = pad + coverSize + 22;
+  const cardW = W - pad * 2;
+  const cardH = H - pad * 2;
+  const textPanelX = tx - 10;
+  const chromeLayout = {
+    pad,
+    cardW,
+    cardH,
+    coverCx,
+    coverCy,
+    coverSize,
+    textPanelX,
+    canvasW: W,
+  };
+
+  paintShelfCardChrome(ctx, chromeLayout, cardBgOpacity);
 
   if (highlighted) {
     ctx.strokeStyle = accentRgba(accentHex, isNow ? 0.72 : 0.68);
@@ -203,12 +278,11 @@ export function drawFloatingSongCard(
     ctx.strokeStyle = 'rgba(255,255,255,0.14)';
     ctx.lineWidth = 1.1;
   }
+  makeRoundRect(ctx, pad, pad, cardW, cardH, 32);
   ctx.stroke();
 
-  const coverSize = H - pad * 2 - 8;
-  const cx = pad + 6;
-  const cy = pad + 4;
-  const tx = pad + coverSize + 22;
+  paintShelfCover(ctx, item, coverCx, coverCy, coverSize, onCoverRequest);
+
   const rightPad = 24;
   const textMaxWidth = W - tx - pad - rightPad;
   ctx.font = '700 16px Inter, "Noto Sans SC", Arial';
@@ -268,26 +342,12 @@ export function drawFloatingSongCard(
   }
 
   if (dofBlur > 0.12) {
-    makeRoundRect(ctx, pad, pad, W - pad * 2, H - pad * 2, 32);
-    ctx.fillStyle = `rgba(0,0,0,${Math.min(0.28, dofBlur * 0.18).toFixed(3)})`;
-    ctx.fill();
-  }
-
-  // 封面最后绘制，避免卡片白色渐变 / 景深叠层压色
-  makeRoundRect(ctx, cx, cy, coverSize, coverSize, 26);
-  const coverRec = item.coverUrl ? coverCache.get(item.coverUrl) : null;
-  if (coverRec instanceof HTMLImageElement) {
     ctx.save();
-    makeRoundRect(ctx, cx, cy, coverSize, coverSize, 26);
+    makeRoundRect(ctx, pad, pad, cardW, cardH, 32);
     ctx.clip();
-    ctx.drawImage(coverRec, cx, cy, coverSize, coverSize);
+    ctx.fillStyle = `rgba(0,0,0,${Math.min(0.28, dofBlur * 0.18).toFixed(3)})`;
+    ctx.fillRect(textPanelX, pad, W - textPanelX - pad, cardH);
     ctx.restore();
-  } else {
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fill();
-    if (item.coverUrl && coverRec !== 'failed') {
-      requestCover(item.coverUrl, onCoverRequest);
-    }
   }
 
   return regions;
@@ -305,7 +365,6 @@ export function createFloatingSongCardMesh(): {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('canvas 2d unavailable');
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
@@ -313,6 +372,7 @@ export function createFloatingSongCardMesh(): {
     map: texture,
     transparent: true,
     opacity: 0.96,
+    toneMapped: false,
     depthWrite: false,
     depthTest: false,
     side: THREE.DoubleSide,

@@ -910,6 +910,31 @@ html.control-glass-svg-ok .mineradio-bottom-bar.visible {
   -webkit-backdrop-filter: blur(8px) saturate(1.15);
 }
 
+/* 沉浸模式：减轻玻璃模糊合成成本（面板叠在全屏 WebGL 上极耗 GPU） */
+.room-immersive-mode .mineradio-glass-panel,
+.room-immersive-mode .mineradio-glass-modal,
+.room-immersive-mode .mineradio-glass-drawer,
+.room-immersive-mode .mineradio-fx-panel {
+  backdrop-filter: blur(8px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2) !important;
+}
+
+.room-immersive-mode .mineradio-glass-list-row,
+.room-immersive-mode .mineradio-glass-chip {
+  backdrop-filter: blur(6px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(1.15) !important;
+}
+
+.room-immersive-mode .mineradio-glass-list-footer {
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+.room-immersive-mode .mineradio-glass-scrim {
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}
+
 .mineradio-glass-sheet-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));

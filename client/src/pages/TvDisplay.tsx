@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Music2, Maximize } from 'lucide-react';
 import { useRoomStore } from '../stores/roomStore';
 import { useAudioStore } from '../stores/audioStore';
@@ -18,19 +18,16 @@ import ProgressBar from '../components/ProgressBar';
 import AudioEngine from '../components/AudioEngine';
 import Tooltip from '../components/Tooltip';
 import { usePageSeo } from '../lib/seo';
-
-function getStoredRoomPassword(roomId: string | undefined) {
-  if (!roomId) return undefined;
-  try {
-    return sessionStorage.getItem(`openmusic:room-password:${roomId.toUpperCase()}`) || undefined;
-  } catch {
-    return undefined;
-  }
-}
+import {
+  getStoredRoomPassword,
+  parseRoomPasswordFromSearch,
+  rememberRoomPassword,
+} from '../lib/roomPassword';
 
 export default function TvDisplay() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const room = useRoomStore((s) => s.room);
   const { joinRoom, leaveRoom } = useSocket();
   const setLrcDuration = useAudioStore((s) => s.setLrcDuration);
@@ -84,18 +81,24 @@ export default function TvDisplay() {
     let cancelled = false;
     let redirectTimer: number | undefined;
 
-    joinRoom(roomId, '电视机', getStoredRoomPassword(roomId), { readOnly: true }).then((res) => {
+    const password =
+      parseRoomPasswordFromSearch(location.search)
+      || getStoredRoomPassword(roomId);
+
+    joinRoom(roomId, '电视机', password, { readOnly: true }).then((res) => {
       if (cancelled) return;
       if (!res.success) {
         setJoinError(res.error || '无法连接房间');
         redirectTimer = window.setTimeout(() => navigate('/'), 3000);
+        return;
       }
+      rememberRoomPassword(roomId, password);
     });
     return () => {
       cancelled = true;
       if (redirectTimer) window.clearTimeout(redirectTimer);
     };
-  }, [roomId, joinRoom, leaveRoom, navigate]);
+  }, [roomId, location.search, joinRoom, leaveRoom, navigate]);
 
   useEffect(() => {
     if (!current) {

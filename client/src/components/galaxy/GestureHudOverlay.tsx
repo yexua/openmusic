@@ -10,6 +10,7 @@ import { patchRoomVisualFx, roomVisualFxLive } from '../../lib/roomVisualFxLive'
 export default function GestureHudOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
+  const idleTimerRef = useRef(0);
 
   useEffect(() => {
     const unsubFail = onGalaxyGestureModeChange((mode, failed) => {
@@ -51,17 +52,40 @@ export default function GestureHudOverlay() {
       const fillEl = document.getElementById('gesture-fill');
       const labelEl = document.getElementById('gesture-label');
       const confirmEl = document.getElementById('gesture-confirm');
-      if (hudEl) hudEl.classList.toggle('show', live.active && hud.visible);
+
+      if (!live.active) {
+        if (hudEl) hudEl.classList.remove('show');
+        canvas.classList.remove('show');
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        if (canvas.width > 0 && canvas.height > 0) {
+          ctx.clearRect(0, 0, W, H);
+        }
+        if (!idleTimerRef.current) {
+          idleTimerRef.current = window.setTimeout(() => {
+            idleTimerRef.current = 0;
+            rafRef.current = requestAnimationFrame(draw);
+          }, 120);
+        }
+        return;
+      }
+
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = 0;
+      }
+
+      if (hudEl) hudEl.classList.toggle('show', hud.visible);
       if (labelEl) labelEl.textContent = hud.label;
       if (confirmEl) confirmEl.textContent = hud.detail;
       if (fillEl) fillEl.style.width = `${Math.max(0, Math.min(100, hud.progress * 100))}%`;
-      canvas.classList.toggle('show', live.active);
+      canvas.classList.add('show');
 
       const W = window.innerWidth;
       const H = window.innerHeight;
       ctx.clearRect(0, 0, W, H);
 
-      if (live.active && live.skeleton) {
+      if (live.skeleton) {
         const { landmarks, isPinch, isFist, openness } = live.skeleton;
         drawHandSkeleton(ctx, landmarks, W, H, {
           isPinch,
@@ -78,6 +102,7 @@ export default function GestureHudOverlay() {
     return () => {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(rafRef.current);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, []);
 

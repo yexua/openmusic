@@ -85,6 +85,12 @@ import RoleBadge from '../components/RoleBadge';
 import { copyToClipboard } from '../lib/copyToClipboard';
 import { rememberRoomVisit } from '../lib/recentRooms';
 import { buildRoomShareText } from '../lib/roomShare';
+import {
+  getStoredRoomPassword,
+  parseRoomPasswordFromSearch,
+  rememberRoomPassword,
+  stripRoomPasswordFromSearch,
+} from '../lib/roomPassword';
 import RoomVisualFxPanel from '../components/RoomVisualFxPanel';
 import RoomImmersiveShell from '../components/immersive/RoomImmersiveShell';
 import ImmersiveFxSettingsPanel from '../components/immersive/ImmersiveFxSettingsPanel';
@@ -114,28 +120,6 @@ import {
 } from '../lib/roomVisualFxLive';
 import { prepareImmersiveEnter } from '../lib/immersiveEntry';
 
-
-function roomPasswordKey(roomId: string) {
-  return `openmusic:room-password:${roomId.toUpperCase()}`;
-}
-
-function getStoredRoomPassword(roomId: string | undefined) {
-  if (!roomId) return undefined;
-  try {
-    return sessionStorage.getItem(roomPasswordKey(roomId)) || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function rememberRoomPassword(roomId: string, password?: string) {
-  if (!password?.trim()) return;
-  try {
-    sessionStorage.setItem(roomPasswordKey(roomId), password.trim());
-  } catch {
-    // sessionStorage may be unavailable in private browsing.
-  }
-}
 
 function mapImportedSource(source: unknown): MusicSource {
   if (source === 'wy' || source === 'netease') return 'netease';
@@ -213,7 +197,17 @@ export default function Room() {
 
   const location = useLocation();
 
-  const roomPassword = (location.state as { password?: string } | null)?.password || getStoredRoomPassword(roomId);
+  const urlPassword = parseRoomPasswordFromSearch(location.search);
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [joinPasswordOverride, setJoinPasswordOverride] = useState<string | undefined>(undefined);
+  const [needsPasswordPrompt, setNeedsPasswordPrompt] = useState(false);
+  const [ignoreUrlPassword, setIgnoreUrlPassword] = useState(false);
+
+  const roomPassword =
+    joinPasswordOverride
+    || (location.state as { password?: string } | null)?.password
+    || (!ignoreUrlPassword ? urlPassword : undefined)
+    || getStoredRoomPassword(roomId);
 
   const { room, nickname, showPlayer, setShowPlayer, isOwner, isAdmin, canControlPlayback, mySocketId, exitReason, isReconnecting } = useRoomStore();
 
@@ -398,13 +392,15 @@ export default function Room() {
     const res = await setRoomLock(true, lockPassword.trim() || undefined);
     setLockSaving(false);
     if (res.success) {
+      const pwd = lockPassword.trim();
+      if (pwd && room?.id) rememberRoomPassword(room.id, pwd);
       setLockOpen(false);
       setLockPassword('');
-      showToast(lockPassword.trim() ? '房间已上锁（需密码进入）' : '房间已上锁（禁止进入）', 'success');
+      showToast(pwd ? '房间已上锁（需密码进入）' : '房间已上锁（禁止进入）', 'success');
     } else {
       showToast(res.error || '上锁失败', 'error');
     }
-  }, [lockPassword, lockSaving, setRoomLock, showToast]);
+  }, [lockPassword, lockSaving, room?.id, setRoomLock, showToast]);
 
   const filteredFavorites = favorites.filter((song) => {
     const keyword = favoriteQuery.trim().toLowerCase();
@@ -561,11 +557,25 @@ export default function Room() {
     joinRoom(roomId, nick, roomPassword).then((res) => {
       if (cancelled) return;
       if (!res.success) {
+        if (res.needsPassword) {
+          setNeedsPasswordPrompt(true);
+          setIgnoreUrlPassword(true);
+          setJoinError(res.error || '请输入房间密码');
+          if (parseRoomPasswordFromSearch(location.search)) {
+            const nextSearch = stripRoomPasswordFromSearch(location.search);
+            navigate(
+              { pathname: location.pathname, search: nextSearch },
+              { replace: true, state: location.state },
+            );
+          }
+          return;
+        }
         setJoinError(res.error || '加入房间失败');
         redirectTimer = window.setTimeout(() => navigate('/'), 2000);
         return;
       }
 
+      setNeedsPasswordPrompt(false);
       rememberRoomPassword(roomId, roomPassword);
       rememberRoomVisit(roomId);
       if (
@@ -581,7 +591,18 @@ export default function Room() {
       if (redirectTimer) window.clearTimeout(redirectTimer);
       // 刷新/关闭页面时不主动 leave，避免房间被暂停；依赖 socket 断开与重连
     };
-  }, [roomId, roomPassword, joinRoom, leaveRoom, navigate]);
+  }, [roomId, roomPassword, joinRoom, leaveRoom, navigate, location.pathname, location.search, location.state]);
+
+  useEffect(() => {
+    if (!room?.id) return;
+    if (!parseRoomPasswordFromSearch(location.search)) return;
+    const nextSearch = stripRoomPasswordFromSearch(location.search);
+    if (nextSearch === location.search) return;
+    navigate(
+      { pathname: location.pathname, search: nextSearch },
+      { replace: true, state: location.state },
+    );
+  }, [room?.id, location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
     if (!room?.id) return;
@@ -1070,10 +1091,19 @@ export default function Room() {
 
   const handleCopyRoom = async () => {
     if (!room?.id) return;
+    let sharePassword: string | undefined;
+    if (room.hasPassword) {
+      sharePassword = getStoredRoomPassword(room.id) || lockPassword.trim() || undefined;
+      if (!sharePassword) {
+        showToast('无法获取房间密码，请在房间设置中重新设置密码后再分享', 'error');
+        return;
+      }
+    }
     const text = buildRoomShareText({
       inviterNickname: nickname,
       roomId: room.id,
       roomName: room.name,
+      password: sharePassword,
       currentSong: room.current
         ? { name: room.current.name, artist: room.current.artist }
         : null,
@@ -1248,6 +1278,59 @@ export default function Room() {
     const next = commitRoomVisualFx({ ...DEFAULT_ROOM_VISUAL_FX });
     setVisualFx(next);
   };
+
+
+  const handlePasswordJoin = useCallback(() => {
+    const pwd = passwordDraft.trim();
+    if (!pwd) {
+      setJoinError('请输入房间密码');
+      return;
+    }
+    setJoinError('');
+    setJoinPasswordOverride(pwd);
+  }, [passwordDraft]);
+
+
+  if (needsPasswordPrompt && !room) {
+
+    return (
+
+      <div className="min-h-full flex items-center justify-center px-6">
+
+        <div className="w-full max-w-sm rounded-2xl border border-netease-border/60 bg-netease-card/80 p-6 shadow-xl">
+          <h2 className="text-lg font-medium text-white mb-1">需要房间密码</h2>
+          <p className="text-sm text-netease-muted mb-4">输入密码后即可进入房间</p>
+          <label className="block text-xs text-white/50 mb-1.5">房间密码</label>
+          <input
+            type="password"
+            value={passwordDraft}
+            onChange={(e) => {
+              setPasswordDraft(e.target.value);
+              if (joinError) setJoinError('');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handlePasswordJoin();
+            }}
+            maxLength={32}
+            autoFocus
+            placeholder="输入房间密码"
+            className="w-full bg-netease-dark border border-netease-border rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 mb-3"
+          />
+          {joinError && <p className="text-xs text-netease-red mb-3">{joinError}</p>}
+          <button
+            type="button"
+            onClick={handlePasswordJoin}
+            className="w-full bg-netease-red hover:bg-red-500 text-white font-medium py-3 rounded-xl transition-colors"
+          >
+            进入房间
+          </button>
+        </div>
+
+      </div>
+
+    );
+
+  }
 
 
   if (joinError) {

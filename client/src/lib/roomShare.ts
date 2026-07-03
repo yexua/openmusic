@@ -1,7 +1,10 @@
+import { buildRoomEntryUrl } from './roomPassword';
+
 export function buildRoomShareText(options: {
   inviterNickname: string;
   roomId: string;
   roomName: string;
+  password?: string;
   currentSong?: { name: string; artist: string } | null;
   isPlaying?: boolean;
   origin?: string;
@@ -10,12 +13,14 @@ export function buildRoomShareText(options: {
     inviterNickname,
     roomId,
     roomName,
+    password,
     currentSong,
     isPlaying = true,
   } = options;
   const origin = options.origin ?? (typeof window !== 'undefined' ? window.location.origin : '');
-  const url = `${origin}/room/${roomId}`;
+  const url = buildRoomEntryUrl(roomId, { password, origin });
   const inviter = inviterNickname.trim() || '好友';
+  const pwd = password?.trim();
 
   let playbackLine: string;
   if (currentSong) {
@@ -25,10 +30,12 @@ export function buildRoomShareText(options: {
     playbackLine = '房间等你一起点歌，快来加入吧 🎵';
   }
 
-  return [
+  const lines = [
     `${inviter} 邀请你加入 OpenMusic 房间「${roomName}」`,
     playbackLine,
     `房间号：${roomId}`,
-    `👉 ${url}`,
-  ].join('\n');
+  ];
+  if (pwd) lines.push(`密码：${pwd}`);
+  lines.push(`👉 ${url}`);
+  return lines.join('\n');
 }

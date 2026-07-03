@@ -418,7 +418,9 @@ export default function RoomImmersiveShell({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden p-2">{queueContent}</div>
+          <div className="min-h-0 flex-1 overflow-hidden p-2">
+            {openPanel === 'queue' ? queueContent : null}
+          </div>
         </div>
       </div>
 
@@ -433,7 +435,7 @@ export default function RoomImmersiveShell({
         onPointerLeave={handlePanelLeave}
       >
         <div className="mineradio-glass-panel m-3 flex h-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-[22px]">
-          <div className="min-h-0 flex-1 overflow-hidden">{chatContent}</div>
+          <div className="min-h-0 flex-1 overflow-hidden">{openPanel === 'chat' && !settingsOpen ? chatContent : null}</div>
         </div>
       </div>
 
@@ -479,7 +481,7 @@ export default function RoomImmersiveShell({
             </button>
           </div>
         </div>
-        <div className="mineradio-fx-panel-body">{settingsPanel}</div>
+        <div className="mineradio-fx-panel-body">{settingsOpen ? settingsPanel : null}</div>
       </div>
 
       <div

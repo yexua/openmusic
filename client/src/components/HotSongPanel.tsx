@@ -25,6 +25,12 @@ function rankStyle(rank: number) {
 
 const HOT_SONG_LIST_LIMIT = 15;
 
+/** 固定两行高度，短文案也占位换行区域 */
+const HOT_NAME_LINE_CLS =
+  'w-full min-w-0 line-clamp-2 break-words leading-snug min-h-[2.5em]';
+const HOT_ARTIST_LINE_CLS =
+  'w-full min-w-0 line-clamp-2 break-words leading-snug min-h-[2.2em]';
+
 export default function HotSongPanel({
   addingId,
   onAdd,
@@ -103,8 +109,8 @@ export default function HotSongPanel({
                     </span>
                     <span className="text-[10px] text-netease-muted truncate">{song.count} 次</span>
                   </div>
-                  <TruncateTip text={song.name} className="text-xs font-medium truncate" />
-                  <TruncateTip text={song.artist} className="text-[10px] text-netease-muted truncate" />
+                  <TruncateTip text={song.name} className={`text-xs font-medium ${HOT_NAME_LINE_CLS}`} />
+                  <TruncateTip text={song.artist} className={`text-[10px] text-netease-muted ${HOT_ARTIST_LINE_CLS}`} />
                 </button>
               ))}
             </div>
@@ -146,7 +152,7 @@ export default function HotSongPanel({
               return (
                   <div
                     key={key}
-                    className={`flex items-center gap-2 rounded-xl transition-colors hover:bg-netease-card/80 group ${embedded ? 'p-1.5' : 'p-2'}`}
+                    className={`flex items-start gap-2 rounded-xl transition-colors hover:bg-netease-card/80 group ${embedded ? 'p-1.5' : 'p-2'}`}
                   >
                   <span
                     className={`flex-shrink-0 w-5 h-5 rounded text-[11px] font-bold flex items-center justify-center ${rankStyle(rank)}`}
@@ -158,10 +164,10 @@ export default function HotSongPanel({
                     className="w-9 h-9 rounded-md object-cover bg-netease-card flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
-                    <TruncateTip text={song.name} className="text-xs font-medium truncate leading-snug" />
-                    <TruncateTip text={song.artist} className="text-[10px] text-netease-muted truncate" />
+                    <TruncateTip text={song.name} className={`text-xs font-medium ${HOT_NAME_LINE_CLS}`} />
+                    <TruncateTip text={song.artist} className={`text-[10px] text-netease-muted ${HOT_ARTIST_LINE_CLS}`} />
                   </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0 self-center">
                     <span className="text-[10px] text-orange-400/90 font-medium">{song.count} 次</span>
                     <SourceBadge source={song.source} variant="muted" className="scale-90 origin-right" />
                   </div>
@@ -170,7 +176,7 @@ export default function HotSongPanel({
                       type="button"
                       onClick={() => handleAdd(song)}
                       disabled={isAdding}
-                      className="flex-shrink-0 p-1.5 rounded-lg bg-netease-red/10 text-netease-red opacity-0 group-hover:opacity-100 hover:bg-netease-red hover:text-white transition-all disabled:opacity-50"
+                      className="flex-shrink-0 p-1.5 rounded-lg bg-netease-red/10 text-netease-red opacity-0 group-hover:opacity-100 hover:bg-netease-red hover:text-white transition-all disabled:opacity-50 self-center"
                       aria-label="点歌"
                     >
                       {isAdding ? (

@@ -33,11 +33,11 @@ export default function GalaxyBackground3D({
       <Canvas
         className="!absolute inset-0 h-full w-full"
         style={{ width: '100%', height: '100%', display: 'block' }}
-        dpr={[1, 1.75]}
+        dpr={[1, 1.5]}
         frameloop="always"
         gl={{
           alpha: false,
-          antialias: true,
+          antialias: typeof window !== 'undefined' && window.devicePixelRatio > 1.25,
           powerPreference: 'high-performance',
         }}
         camera={{ fov: 45, near: 0.1, far: 200, position: [0, 3.1, 7.7] }}
