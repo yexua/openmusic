@@ -24,7 +24,7 @@ import {
 import { rememberClientIdentity } from '../lib/clientId';
 import { requireSessionBootstrap, resetSessionBootstrap } from '../lib/sessionBootstrap';
 import { mergeRoomState } from '../lib/mergeRoomState';
-import { debugLog, setDebugSocketProvider } from '../lib/debugTools';
+import { debugLine, debugLog, resetDriftHistogram, setDebugSocketProvider } from '../lib/debugTools';
 import { bindReportTrackDurationSocket } from '../lib/reportTrackDuration';
 
 
@@ -304,7 +304,7 @@ function scheduleRoomRejoin(trigger: string) {
   const delay = Math.min(800 + reconnectAttempt * 500, 8000);
   reconnectAttempt += 1;
   useRoomStore.getState().setReconnecting(true);
-  debugLog('room_rejoin_scheduled', { trigger, delay, attempt: reconnectAttempt });
+  debugLog('room_rejoin_scheduled', debugLine({ trigger, delay, attempt: reconnectAttempt }));
 
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
@@ -339,7 +339,7 @@ async function attemptRoomRejoin(trigger: string) {
 
   rejoinInFlight = true;
   useRoomStore.getState().setReconnecting(true);
-  debugLog('room_rejoin_attempt', { trigger, roomId: session.roomId, attempt: reconnectAttempt });
+  debugLog('room_rejoin_attempt', debugLine({ trigger, roomId: session.roomId, attempt: reconnectAttempt }));
 
   try {
     resetSessionBootstrap();
@@ -375,10 +375,10 @@ async function attemptRoomRejoin(trigger: string) {
 
     scheduleRoomRejoin('join_failed');
   } catch (err) {
-    debugLog('room_rejoin_error', {
+    debugLog('room_rejoin_error', debugLine({
       trigger,
       message: err instanceof Error ? err.message : String(err),
-    });
+    }));
     scheduleRoomRejoin('error');
   } finally {
     rejoinInFlight = false;
@@ -386,7 +386,7 @@ async function attemptRoomRejoin(trigger: string) {
 }
 
 function handleSocketDisconnect(reason: string) {
-  debugLog('socket_disconnect', { reason });
+  debugLog('socket_disconnect', debugLine({ reason }));
   const { mySocketId } = useRoomStore.getState();
   useRoomStore.getState().setConnectionInfo(mySocketId, false, null);
 
@@ -435,14 +435,14 @@ if (socketListenersAttached) return;
 let prefetchDebounceTimer = 0;
 
     const onRoomUpdate = (room: RoomState) => {
-      debugLog('room_update', {
+      debugLog('room_update', debugLine({
         roomId: room.id,
         current: room.current?.queueId || null,
         isPlaying: room.isPlaying,
-        currentTime: room.currentTime,
+        currentTime: Number(room.currentTime.toFixed(3)),
         users: room.users?.length ?? 0,
         randomLoading: room.randomLoading,
-      });
+      }));
       const { mySocketId, room: prevRoom } = useRoomStore.getState();
 
       if (prevRoom?.id === room.id && room.current) {
@@ -511,6 +511,7 @@ let prefetchDebounceTimer = 0;
       resetPhaseSync();
       resetDriftController();
       resetPlaybackScheduling();
+      resetDriftHistogram();
       resetPlaybackStateCache();
       useAudioStore.getState().setPlaybackVersion(0);
       useAudioStore.getState().setTrackLoading(false);
@@ -535,12 +536,15 @@ let prefetchDebounceTimer = 0;
     s.on('kicked', onKicked);
 
     s.on('connect', () => {
-      debugLog('socket_connect', { id: s.id, transport: s.io.engine?.transport?.name });
+      debugLog('socket_connect', debugLine({
+        id: s.id,
+        transport: s.io.engine?.transport?.name,
+      }));
       void attemptRoomRejoin('connect');
     });
     s.on('disconnect', handleSocketDisconnect);
     s.on('connect_error', (err) => {
-      debugLog('socket_connect_error', { message: err?.message });
+      debugLog('socket_connect_error', debugLine({ message: err?.message }));
       const { mySocketId } = useRoomStore.getState();
       useRoomStore.getState().setConnectionInfo(mySocketId, false, null);
       if (shouldMaintainRoomSession()) {

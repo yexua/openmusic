@@ -11,6 +11,8 @@ import {
   tryPlayWithAutoplayFallback,
   type PlayResult,
 } from './audioUnlock';
+import { debugLine, debugLog } from './debugTools';
+import { recordDriftSample } from './driftHistogram';
 
 /**
  * 离散事件同步：
@@ -19,7 +21,8 @@ import {
  * - 状态校正（forceCorrection）：暂停/远端 seek（偏差 > 阈值）时对齐，中途不追
  */
 const FINAL_WINDOW_SEC = 3;
-const REMOTE_SEEK_THRESHOLD_SEC = 1.0;
+/** 播放中远端校正阈值；略低于常见 pending-snapshot 延迟，避免长期固定偏差 */
+const REMOTE_SEEK_THRESHOLD_SEC = 0.5;
 
 let finalSyncTrackId: string | null = null;
 let finalSyncDone = false;
@@ -78,12 +81,60 @@ function lockPlaybackRate(audio: HTMLAudioElement): void {
   resetDriftController(audio);
 }
 
-function explicitHardSeek(audio: HTMLAudioElement, target: number, trackId?: string): void {
+function syncModeLabel(options: ApplySyncOptions): string {
+  if (options.forceZero) return 'force_zero';
+  if (options.forceTime !== undefined) return 'force_time';
+  if (options.forceCorrection) return 'force_correction';
+  return 'routine';
+}
+
+function recordSyncDrift(
+  audio: HTMLAudioElement,
+  options: ApplySyncOptions,
+  mode: string,
+): void {
+  const target = resolveTargetTime(audio, options);
+  const audioTime = audio.currentTime;
+  const diffSec = target - audioTime;
+  recordDriftSample(diffSec);
+  const state = getClientPlaybackState();
+  debugLog('sync_drift', debugLine({
+    mode,
+    target: Number(target.toFixed(3)),
+    audio: Number(audioTime.toFixed(3)),
+    diffMs: Math.round(diffSec * 1000),
+    absDiffMs: Math.round(Math.abs(diffSec) * 1000),
+    version: state?.version ?? null,
+    trackId: state?.trackId ?? options.song.queueId,
+  }));
+}
+
+function explicitHardSeek(
+  audio: HTMLAudioElement,
+  target: number,
+  trackId?: string,
+  reason = 'hard_seek',
+): void {
+  const before = audio.currentTime;
+  debugLog('sync_seek', debugLine({
+    reason,
+    target: Number(target.toFixed(3)),
+    before: Number(before.toFixed(3)),
+    diffMs: Math.round((target - before) * 1000),
+    trackId: trackId || null,
+    version: getClientPlaybackState()?.version ?? null,
+  }));
   if (trackId) ensureFinalSyncTrack(trackId);
   finalSyncDone = false;
   lockPlaybackRate(audio);
   audio.currentTime = target;
   snapSmoothPlaybackTime(target);
+  debugLog('sync_seek_done', debugLine({
+    reason,
+    after: Number(audio.currentTime.toFixed(3)),
+    target: Number(target.toFixed(3)),
+    seekErrorMs: Math.round((audio.currentTime - target) * 1000),
+  }));
 }
 
 function shouldSkipRoutineSync(
@@ -138,20 +189,32 @@ async function applyCorrectionSync(
   if (!isPlaying) {
     lockPlaybackRate(audio);
     if (!audio.paused) audio.pause();
-    explicitHardSeek(audio, target, trackId);
+    explicitHardSeek(audio, target, trackId, 'correction_paused');
     return 'paused';
   }
 
   const diff = target - audio.currentTime;
   if (Math.abs(diff) > REMOTE_SEEK_THRESHOLD_SEC) {
-    explicitHardSeek(audio, target, trackId);
+    explicitHardSeek(audio, target, trackId, 'force_correction');
   } else {
+    debugLog('sync_skip', debugLine({
+      reason: 'correction_below_threshold',
+      diffMs: Math.round(diff * 1000),
+      thresholdMs: Math.round(REMOTE_SEEK_THRESHOLD_SEC * 1000),
+      target: Number(target.toFixed(3)),
+      audio: Number(audio.currentTime.toFixed(3)),
+    }));
     lockPlaybackRate(audio);
   }
 
   if (audio.paused) {
     const initial = await tryPlayWithAutoplayFallback(audio, Boolean(options.tvMode));
     const result = await assessPlaybackResult(audio, initial);
+    debugLog('sync_play', debugLine({
+      reason: 'correction',
+      result,
+      audio: Number(audio.currentTime.toFixed(3)),
+    }));
     if (result !== 'played') return result;
   }
 
@@ -170,15 +233,20 @@ async function applyMandatorySync(
   if (!isPlaying) {
     lockPlaybackRate(audio);
     if (!audio.paused) audio.pause();
-    explicitHardSeek(audio, target, trackId);
+    explicitHardSeek(audio, target, trackId, 'mandatory_paused');
     return 'paused';
   }
 
-  explicitHardSeek(audio, target, trackId);
+  explicitHardSeek(audio, target, trackId, options.forceZero ? 'force_zero' : 'mandatory');
 
   if (audio.paused) {
     const initial = await tryPlayWithAutoplayFallback(audio, Boolean(options.tvMode));
     const result = await assessPlaybackResult(audio, initial);
+    debugLog('sync_play', debugLine({
+      reason: options.forceZero ? 'force_zero' : 'mandatory',
+      result,
+      audio: Number(audio.currentTime.toFixed(3)),
+    }));
     if (result !== 'played') return result;
   }
 
@@ -190,6 +258,9 @@ export async function applyFollowerSync(
   options: ApplySyncOptions,
 ): Promise<PlayResult | 'paused' | 'idle'> {
   if (!audio.src) return 'idle';
+
+  const mode = syncModeLabel(options);
+  recordSyncDrift(audio, options, mode);
 
   if (isMandatorySync(options)) {
     return applyMandatorySync(audio, options);

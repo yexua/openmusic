@@ -4,16 +4,21 @@ import { useChatStore } from '../stores/chatStore';
 import { getSharedAudio } from './audioElement';
 import { getAudioBoundQueueId } from './audioTrackBinding';
 import { getClientId } from './clientId';
-import { getClientPlaybackState, getPlaybackTime } from './playbackState';
+import {
+  getClientPlaybackState,
+  getPlaybackSnapshotTiming,
+  getPlaybackTime,
+} from './playbackState';
+import { formatDriftHistogram, resetDriftHistogram } from './driftHistogram';
 
 const DEBUG_FLAG_KEY = 'openmusic:debug';
 const DEBUG_INTERVAL_MS = 2000;
-const MAX_EVENTS = 80;
+const MAX_EVENTS = 120;
 
 type DebugEvent = {
   at: string;
   name: string;
-  data?: unknown;
+  line: string;
 };
 
 type SocketSnapshot = {
@@ -33,125 +38,144 @@ function nowLabel(): string {
   return new Date().toISOString().slice(11, 23);
 }
 
-function safeNumber(value: number | undefined): number | null {
-  return Number.isFinite(value) ? Number(value!.toFixed(3)) : null;
+function fmtNum(value: number | null | undefined, digits = 3): string {
+  return Number.isFinite(value) ? Number(value!.toFixed(digits)).toString() : 'null';
 }
 
-function audioSnapshot() {
-  const audio = getSharedAudio();
-  return {
-    boundQueueId: getAudioBoundQueueId(audio) || null,
-    src: audio.currentSrc || audio.src || '',
-    paused: audio.paused,
-    ended: audio.ended,
-    currentTime: safeNumber(audio.currentTime),
-    duration: safeNumber(audio.duration),
-    readyState: audio.readyState,
-    networkState: audio.networkState,
-    playbackRate: audio.playbackRate,
-    volume: audio.volume,
-    muted: audio.muted,
-    error: audio.error ? {
-      code: audio.error.code,
-      message: audio.error.message,
-    } : null,
-  };
+/** key=value 单行，便于整段复制 */
+export function debugLine(parts: Record<string, string | number | boolean | null | undefined>): string {
+  return Object.entries(parts)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k}=${v ?? 'null'}`)
+    .join(' ');
 }
 
-function roomSnapshot() {
-  const { room, nickname, mySocketId, myConnectionId, isOwner, showPlayer, exitReason } = useRoomStore.getState();
-  return {
-    roomId: room?.id || null,
-    roomName: room?.name || null,
+export function debugLog(name: string, line?: string): void {
+  const text = line ?? '';
+  const event: DebugEvent = { at: nowLabel(), name, line: text };
+  state.events.push(event);
+  if (state.events.length > MAX_EVENTS) {
+    state.events.splice(0, state.events.length - MAX_EVENTS);
+  }
+  if (state.enabled) {
+    console.log(text ? `[openmusic:${name}] ${text}` : `[openmusic:${name}]`);
+  }
+}
+
+function shortSrc(src: string): string {
+  if (!src) return '';
+  try {
+    const url = new URL(src);
+    return `${url.host}${url.pathname.slice(0, 24)}…`;
+  } catch {
+    return src.slice(0, 48);
+  }
+}
+
+function formatSnapshotText(reason: string): string {
+  const lines: string[] = [];
+  const at = new Date().toISOString();
+  lines.push(`--- openmusic debug ${reason} ${at} ---`);
+
+  const socket = state.getSocket?.();
+  lines.push(debugLine({
+    href: location.href,
+    clientId: getClientId(),
+    socketId: socket?.id ?? null,
+    socketConnected: socket?.connected ?? null,
+    socketTransport: socket?.transport ?? null,
+    hidden: document.hidden,
+    visibility: document.visibilityState,
+    online: navigator.onLine,
+  }));
+
+  const { room, nickname, mySocketId, isOwner } = useRoomStore.getState();
+  lines.push(debugLine({
+    roomId: room?.id ?? null,
+    roomName: room?.name ?? null,
     nickname,
     mySocketId,
-    myConnectionId,
     isOwner,
-    showPlayer,
-    exitReason,
-    ownerId: room?.ownerId || null,
-    creatorId: room?.creatorId || null,
     isPlaying: room?.isPlaying ?? null,
-    currentTime: safeNumber(room?.currentTime),
-    randomLoading: room?.randomLoading ?? null,
-    users: room?.users?.map((user) => ({
-      id: user.id,
-      nickname: user.nickname,
-      location: user.location,
-      readOnly: user.readOnly,
-    })) || [],
-    current: room?.current ? {
-      queueId: room.current.queueId,
-      id: room.current.id,
-      source: room.current.source,
-      name: room.current.name,
-      duration: room.current.duration,
-    } : null,
-    queueLength: room?.queue?.length ?? 0,
-    messages: useChatStore.getState().messages.length,
-  };
+    roomCurrentTime: fmtNum(room?.currentTime),
+    users: room?.users?.length ?? 0,
+    queueLen: room?.queue?.length ?? 0,
+    chatMsgs: useChatStore.getState().messages.length,
+  }));
+
+  if (room?.current) {
+    lines.push(debugLine({
+      trackQueueId: room.current.queueId,
+      trackId: room.current.id,
+      trackSource: room.current.source,
+      trackName: room.current.name,
+      trackDuration: room.current.duration ?? null,
+    }));
+  }
+
+  const audio = getSharedAudio();
+  const audioStore = useAudioStore.getState();
+  lines.push(debugLine({
+    audioBound: getAudioBoundQueueId(audio) || null,
+    audioTime: fmtNum(audio.currentTime),
+    audioDuration: fmtNum(audio.duration),
+    audioPaused: audio.paused,
+    audioEnded: audio.ended,
+    audioReadyState: audio.readyState,
+    audioRate: fmtNum(audio.playbackRate),
+    trackLoading: audioStore.trackLoading,
+    needsUnlock: audioStore.needsAudioUnlock,
+    smoothTime: fmtNum(audioStore.smoothPlaybackTime),
+    playbackVersion: audioStore.playbackVersion,
+    audioSrc: shortSrc(audio.currentSrc || audio.src),
+  }));
+
+  const pb = getClientPlaybackState();
+  if (pb) {
+    const derived = getPlaybackTime(pb);
+    const driftMs = Math.round((derived - audio.currentTime) * 1000);
+    const timing = getPlaybackSnapshotTiming();
+    lines.push(debugLine({
+      pbVersion: pb.version,
+      pbTrackId: pb.trackId,
+      pbStatus: pb.status,
+      pbPositionSec: fmtNum(pb.positionSec),
+      pbDerivedSec: fmtNum(derived),
+      pbDriftMs: driftMs,
+      pbStartedAt: pb.startedAt || 0,
+      pbServerNowMs: pb.serverNowMs,
+      pbReceivedAt: timing?.receivedAt ?? pb.receivedAt,
+      pbCommittedAt: timing?.committedAt ?? pb.committedAt,
+      snapshotAgeMs: timing?.snapshotAgeMs ?? null,
+    }));
+  } else {
+    lines.push('playback_state=null');
+  }
+
+  lines.push(formatDriftHistogram());
+
+  const recent = state.events.slice(-12);
+  if (recent.length > 0) {
+    lines.push('recent_events:');
+    for (const e of recent) {
+      lines.push(`  ${e.at} ${e.name} ${e.line}`.trimEnd());
+    }
+  }
+
+  lines.push('--- end ---');
+  return lines.join('\n');
 }
 
-function playbackSnapshot() {
-  const playbackState = getClientPlaybackState();
-  const audio = useAudioStore.getState();
-  return {
-    clientId: getClientId(),
-    documentHidden: document.hidden,
-    visibilityState: document.visibilityState,
-    online: navigator.onLine,
-    audioStore: {
-      trackLoading: audio.trackLoading,
-      needsAudioUnlock: audio.needsAudioUnlock,
-      smoothPlaybackTime: safeNumber(audio.smoothPlaybackTime),
-      playbackVersion: audio.playbackVersion,
-      lrcTrackKey: audio.lrcTrackKey,
-      lrcDurationMs: audio.lrcDurationMs,
-      mediaTrackKey: audio.mediaTrackKey,
-      mediaDurationMs: audio.mediaDurationMs,
-      volume: audio.volume,
-      hasSeekPlayback: Boolean(audio.seekPlayback),
-      hasLocalPlayback: Boolean(audio.localPlayback),
-      hasRetryPlayback: Boolean(audio.retryPlayback),
-    },
-    playbackState: playbackState ? {
-      roomId: playbackState.roomId,
-      version: playbackState.version,
-      trackId: playbackState.trackId,
-      status: playbackState.status,
-      positionSec: safeNumber(playbackState.positionSec),
-      derivedTime: safeNumber(getPlaybackTime(playbackState)),
-      updatedAt: playbackState.updatedAt,
-    } : null,
-  };
-}
-
-export function getDebugSnapshot() {
-  return {
-    at: new Date().toISOString(),
-    page: {
-      href: location.href,
-      userAgent: navigator.userAgent,
-    },
-    socket: state.getSocket?.() || null,
-    room: roomSnapshot(),
-    playback: playbackSnapshot(),
-    audio: audioSnapshot(),
-    recentEvents: state.events.slice(-20),
-  };
-}
-
-export function debugLog(name: string, data?: unknown): void {
-  const event = { at: nowLabel(), name, data };
-  state.events.push(event);
-  if (state.events.length > MAX_EVENTS) state.events.splice(0, state.events.length - MAX_EVENTS);
-  if (state.enabled) console.log(`[openmusic:${name}]`, data ?? '');
+export function getDebugSnapshot(): string {
+  return formatSnapshotText('snapshot');
 }
 
 function printSnapshot(reason = 'tick'): void {
-  console.groupCollapsed(`[openmusic:debug] ${reason} ${nowLabel()}`);
-  console.log(getDebugSnapshot());
-  console.groupEnd();
+  console.log(formatSnapshotText(reason));
+}
+
+function printDriftHistogram(): void {
+  console.log(formatDriftHistogram());
 }
 
 /** URL ?debug=1 或 ?om_debug=1 自动开启（并从地址栏移除参数） */
@@ -183,7 +207,7 @@ export function enableOpenMusicDebug(): void {
   state.enabled = true;
   localStorage.setItem(DEBUG_FLAG_KEY, '1');
   printSnapshot('enabled');
-  state.timer = window.setInterval(() => printSnapshot(), DEBUG_INTERVAL_MS);
+  state.timer = window.setInterval(() => printSnapshot('tick'), DEBUG_INTERVAL_MS);
 }
 
 export function disableOpenMusicDebug(): void {
@@ -191,6 +215,7 @@ export function disableOpenMusicDebug(): void {
   localStorage.removeItem(DEBUG_FLAG_KEY);
   if (state.timer) window.clearInterval(state.timer);
   state.timer = 0;
+  resetDriftHistogram();
   console.log('[openmusic:debug] disabled');
 }
 
@@ -199,10 +224,14 @@ export function installOpenMusicDebug(): void {
     debug?: () => void;
     debugOff?: () => void;
     debugNow?: () => void;
+    debugHist?: () => void;
+    debugHistReset?: () => void;
     openMusicDebug?: {
       on: () => void;
       off: () => void;
       now: () => void;
+      hist: () => void;
+      histReset: () => void;
       snapshot: typeof getDebugSnapshot;
       event: typeof debugLog;
     };
@@ -211,29 +240,44 @@ export function installOpenMusicDebug(): void {
   target.debug = enableOpenMusicDebug;
   target.debugOff = disableOpenMusicDebug;
   target.debugNow = () => printSnapshot('manual');
+  target.debugHist = printDriftHistogram;
+  target.debugHistReset = () => {
+    resetDriftHistogram();
+    console.log('[openmusic:debug] drift histogram reset');
+  };
   target.openMusicDebug = {
     on: enableOpenMusicDebug,
     off: disableOpenMusicDebug,
     now: target.debugNow,
+    hist: target.debugHist,
+    histReset: target.debugHistReset,
     snapshot: getDebugSnapshot,
     event: debugLog,
   };
 
-  window.addEventListener('visibilitychange', () => debugLog('visibilitychange', {
-    hidden: document.hidden,
-    visibilityState: document.visibilityState,
-  }));
+  window.addEventListener('visibilitychange', () => {
+    debugLog('visibilitychange', debugLine({
+      hidden: document.hidden,
+      visibility: document.visibilityState,
+    }));
+  });
   window.addEventListener('online', () => debugLog('online'));
   window.addEventListener('offline', () => debugLog('offline'));
-  window.addEventListener('error', (event) => debugLog('window-error', {
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
-    colno: event.colno,
-  }));
-  window.addEventListener('unhandledrejection', (event) => debugLog('unhandled-rejection', String(event.reason)));
+  window.addEventListener('error', (event) => {
+    debugLog('window-error', debugLine({
+      message: event.message,
+      file: event.filename,
+      line: event.lineno,
+      col: event.colno,
+    }));
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    debugLog('unhandled-rejection', String(event.reason));
+  });
 
   if (localStorage.getItem(DEBUG_FLAG_KEY) === '1' || consumeDebugUrlParam()) {
     enableOpenMusicDebug();
   }
 }
+
+export { resetDriftHistogram };

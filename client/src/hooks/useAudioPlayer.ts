@@ -497,12 +497,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     if (fromUserGesture) {
       markAudioSessionUnlocked();
       setNeedsAudioUnlock(false);
+      tryFlushPendingSnapshot();
       if (controller.audio.src) playInUserGesture(controller.audio);
     }
 
     if (!canSyncAudioForQueue(controller.audio, liveRoom.current.queueId)) return;
 
-    applySync();
+    // 解锁/补播：必须先对齐服务端进度，routine 同步 mid-track 不会 seek
+    applySync({ forceCorrection: true });
   }, [controller, applySync, setNeedsAudioUnlock]);
 
   useEffect(() => {
@@ -916,7 +918,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
       if (!playbackStateMatchesCurrentTrack(liveRoom.current)) return;
       if (endedTrackKey.current === trackKeyOf(liveRoom.current)) return;
 
-      applySync();
+      tryFlushPendingSnapshot();
+      // 等待解锁期间也要把暂停的 audio 对齐到服务端，点击后不会从旧进度开播
+      applySync({ forceCorrection: true });
     };
 
     const id = window.setInterval(check, UNLOCK_POLL_MS);

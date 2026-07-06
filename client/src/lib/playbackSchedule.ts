@@ -3,6 +3,7 @@ import { useAudioStore } from '../stores/audioStore';
 import { useRoomStore } from '../stores/roomStore';
 import { getSharedAudio } from './audioElement';
 import { getAudioBoundQueueId } from './audioTrackBinding';
+import { debugLine, debugLog } from './debugTools';
 import {
   applyPlaybackState,
   getPlaybackTime,
@@ -11,7 +12,12 @@ import {
 } from './playbackState';
 import type { RoomState } from '../types';
 
-let pendingSnapshot: PlaybackState | null = null;
+type PendingSnapshot = {
+  state: PlaybackState;
+  receivedAt: number;
+};
+
+let pendingSnapshot: PendingSnapshot | null = null;
 
 /** @deprecated 绑定改在 assign src 时写入 audio.dataset，此处保留空实现兼容旧调用 */
 export function markAudioReadyTrackQueueId(_queueId: string | null): void {}
@@ -39,15 +45,40 @@ function isAudioReadyForSnapshot(trackId: string): boolean {
   return true;
 }
 
-function queueSnapshot(state: PlaybackState): void {
-  if (!pendingSnapshot || state.version >= pendingSnapshot.version) {
-    pendingSnapshot = state;
+function queueSnapshot(state: PlaybackState, receivedAt: number): void {
+  if (!pendingSnapshot || state.version >= pendingSnapshot.state.version) {
+    pendingSnapshot = { state, receivedAt };
   }
 }
 
+function logPlaybackCommit(
+  state: PlaybackState,
+  receivedAt: number,
+  committedAt: number,
+  via: 'live' | 'flush_pending',
+): void {
+  const snapshotAgeMs = committedAt - receivedAt;
+  const serverAgeMs = committedAt - (state.serverNowMs || state.updatedAt || committedAt);
+  debugLog('playback_state_commit', debugLine({
+    via,
+    version: state.version,
+    trackId: state.trackId,
+    positionSec: Number(state.positionSec.toFixed(3)),
+    snapshotAgeMs,
+    serverAgeMs,
+    receivedAt,
+    committedAt,
+    startedAt: state.startedAt || 0,
+  }));
+}
+
 /** 立即应用（加入房间等初始同步） */
-export function commitPlaybackState(state: PlaybackState): boolean {
-  if (!applyPlaybackState(state)) return false;
+export function commitPlaybackState(
+  state: PlaybackState,
+  receivedAt = Date.now(),
+): boolean {
+  const committedAt = Date.now();
+  if (!applyPlaybackState(state, { receivedAt, committedAt })) return false;
   useAudioStore.getState().setPlaybackVersion(state.version);
   syncRoomPlaybackFromState(state);
   return true;
@@ -55,21 +86,32 @@ export function commitPlaybackState(state: PlaybackState): boolean {
 
 /** 应用服务端播放状态；audio 未 ready 时先入队，避免 currentTime=0 跳秒 */
 export function schedulePlaybackState(state: PlaybackState): void {
+  const receivedAt = Date.now();
   if (!isAudioReadyForSnapshot(state.trackId)) {
-    queueSnapshot(state);
+    queueSnapshot(state, receivedAt);
+    debugLog('playback_state_queued', debugLine({
+      version: state.version,
+      trackId: state.trackId,
+      positionSec: Number(state.positionSec.toFixed(3)),
+      receivedAt,
+    }));
     return;
   }
   pendingSnapshot = null;
-  commitPlaybackState(state);
+  const committedAt = Date.now();
+  logPlaybackCommit(state, receivedAt, committedAt, 'live');
+  commitPlaybackState(state, receivedAt);
 }
 
 /** audio ready 后刷入待处理的 snapshot */
 export function flushPendingPlaybackSnapshot(): boolean {
   if (!pendingSnapshot) return false;
-  const state = pendingSnapshot;
+  const { state, receivedAt } = pendingSnapshot;
   if (!isAudioReadyForSnapshot(state.trackId)) return false;
   pendingSnapshot = null;
-  return commitPlaybackState(state);
+  const committedAt = Date.now();
+  logPlaybackCommit(state, receivedAt, committedAt, 'flush_pending');
+  return commitPlaybackState(state, receivedAt);
 }
 
 export function hasPendingPlaybackSnapshot(): boolean {
