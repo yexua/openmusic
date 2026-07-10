@@ -40,13 +40,15 @@ function requestOnce(url, options = {}, timeoutMs = 10000) {
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const body = Buffer.concat(chunks);
+        const text = () => body.toString('utf8');
         resolve({
           ok: (res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300,
           status: res.statusCode || 0,
           headers: {
             get: (name) => res.headers[String(name).toLowerCase()] ?? null,
           },
-          text: async () => body.toString('utf8'),
+          text: async () => text(),
+          json: async () => JSON.parse(text()),
           arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
         });
       });
