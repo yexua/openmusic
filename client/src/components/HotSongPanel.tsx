@@ -3,7 +3,6 @@ import { Flame, Plus, Loader2, TrendingUp } from 'lucide-react';
 import type { HotSongItem, SearchResult } from '../types';
 import { getHotSongs, songKey } from '../api/music';
 import SongCover from './SongCover';
-import SourceBadge from './SourceBadge';
 import Tooltip from './Tooltip';
 import TruncateTip from './TruncateTip';
 
@@ -172,7 +171,6 @@ export default memo(function HotSongPanel({
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0 self-center">
                     <span className="text-[10px] text-orange-400/90 font-medium">{song.count} 次</span>
-                    <SourceBadge source={song.source} variant="muted" className="scale-90 origin-right" />
                   </div>
                   <Tooltip content="点歌">
                     <button

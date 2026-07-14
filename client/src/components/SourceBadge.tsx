@@ -1,16 +1,5 @@
 import type { MusicSource } from '../types';
-
-const SOURCE_COLORS: Record<MusicSource, string> = {
-  netease: '#ec4141',
-  tencent: '#31c27c',
-  kugou: '#2688ee',
-};
-
-const SOURCE_LABELS: Record<MusicSource, string> = {
-  netease: '网易',
-  tencent: 'QQ',
-  kugou: '酷狗',
-};
+import { SOURCE_COLORS, getSourceShortLabel } from '../lib/sourceLabels';
 
 interface Props {
   source?: MusicSource;
@@ -31,7 +20,7 @@ export default function SourceBadge({ source = 'netease', className = '', varian
       } ${className}`}
       style={isMuted ? undefined : { backgroundColor: SOURCE_COLORS[source] || SOURCE_COLORS.netease }}
     >
-      {SOURCE_LABELS[source] || '网易'}
+      {getSourceShortLabel(source)}
     </span>
   );
 }

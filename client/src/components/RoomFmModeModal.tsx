@@ -40,7 +40,7 @@ export default function RoomFmModeModal({ open, value, saving = false, onClose, 
         </div>
 
         <p className="mb-4 text-xs text-netease-muted">
-          队列为空时通过网易云私人漫游自动推荐下一首
+          队列为空时通过私人漫游自动推荐下一首
         </p>
 
         <div className="max-h-[min(52vh,420px)] space-y-2 overflow-y-auto pr-1">

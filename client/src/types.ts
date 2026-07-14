@@ -28,7 +28,7 @@ export interface Song {
   album?: string;
   pic?: string;
   duration?: number;
-  /** 直链播放地址（酷狗等） */
+  /** 直链播放地址（蓝点等） */
   url?: string;
   /** 歌词文本或歌词 API 地址 */
   lrc?: string;
@@ -161,9 +161,9 @@ export interface RoomState {
   nextRandom?: QueueItem | null;
   /** 服务端正在为空队列拉取私人漫游 */
   randomLoading?: boolean;
-  /** 房间播放音质（网易 / QQ） */
+  /** 房间播放音质（红点 / 绿点） */
   audioQuality?: RoomAudioQuality;
-  /** 队列为空时网易云私人漫游模式 */
+  /** 队列为空时私人漫游推荐模式 */
   neteaseFmMode?: string;
   /** 公告是否开启 */
   announcementEnabled?: boolean;

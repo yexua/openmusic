@@ -630,13 +630,13 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
               {renderEmojiPickerContent('grid max-h-64 grid-cols-8 gap-0.5 overflow-y-auto overscroll-contain px-0.5 py-0.5')}
             </div>
           )}
-          <Tooltip content="QQ 表情">
+          <Tooltip content="表情贴纸">
             <button
               type="button"
               onClick={() => setShowEmoji((value) => !value)}
               disabled={chatMuted}
               className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-netease-border/50 transition-colors disabled:opacity-40 ${showEmoji ? 'border-netease-red/30 bg-netease-red/15 text-netease-red' : 'bg-netease-dark text-netease-muted hover:bg-white/5 hover:text-white'}`}
-              aria-label="QQ 表情"
+              aria-label="表情贴纸"
             >
               <Smile className="h-4 w-4" />
             </button>

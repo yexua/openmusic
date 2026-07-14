@@ -10,18 +10,18 @@ import {
 } from '../lib/immersiveGlass';
 
 const HINTS: Record<PlaylistPlatform, string> = {
-  netease: '复制网易云歌单分享文案或链接粘贴到下方。',
-  qq: '点击 QQ 音乐歌单「分享」→ 打开 QQ → 选择「我的电脑」发送，将链接粘贴到下方。',
+  netease: '粘贴歌单分享文案或链接到下方。',
+  qq: '粘贴歌单分享链接或歌单 ID 到下方。',
 };
 
 const PLATFORM_LABELS: Record<PlaylistPlatform, string> = {
-  netease: '网易云音乐',
-  qq: 'QQ音乐',
+  netease: '红点',
+  qq: '绿点',
 };
 
 const TITLES: Record<PlaylistPlatform, string> = {
-  netease: '导入网易云歌单',
-  qq: '导入 QQ 音乐歌单',
+  netease: '导入红点歌单',
+  qq: '导入绿点歌单',
 };
 
 const HISTORY_KEY = 'openmusic:playlist-import-history';
@@ -186,7 +186,7 @@ export default function PlaylistImportModal({
             >
               {PLATFORM_LABELS.netease}
             </button>
-            <Tooltip content={qqImportEnabled ? undefined : 'QQ 音乐歌单导入暂不可用'}>
+            <Tooltip content={qqImportEnabled ? undefined : '绿点歌单导入暂不可用'}>
               <button
                 type="button"
                 onClick={() => setPlatform('qq')}
@@ -284,7 +284,7 @@ export default function PlaylistImportModal({
           onChange={(e) => setInput(e.target.value)}
           placeholder={platform === 'netease'
             ? '粘贴分享链接、完整分享文案或歌单 ID...'
-            : '粘贴 QQ 音乐歌单分享链接或歌单 ID...'}
+            : '粘贴歌单分享链接或歌单 ID...'}
           rows={4}
           disabled={loading}
           className={inputClass}

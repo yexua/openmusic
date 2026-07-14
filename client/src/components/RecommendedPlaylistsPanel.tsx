@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
-import type { PlaylistPlatform, PlaylistSearchItem } from '../api/music/playlist';
+import type { PlaylistSearchItem } from '../api/music/playlist';
 import {
   CURATED_COUNT,
   CURATED_NETEASE,
@@ -8,11 +8,6 @@ import {
   getRecommendedPlaylistsFallback,
   peekRecommendedPlaylists,
 } from '../lib/recommendedPlaylists';
-
-const PLATFORM_LABELS: Record<PlaylistPlatform, string> = {
-  netease: '网易',
-  qq: 'QQ',
-};
 
 const NETEASE_EXTRA_LIMIT = 4;
 
@@ -25,24 +20,6 @@ interface Props {
   compact?: boolean;
   hideHeader?: boolean;
   immersive?: boolean;
-}
-
-function PlatformGlassTag({
-  platform,
-  compact = false,
-}: {
-  platform: PlaylistPlatform;
-  compact?: boolean;
-}) {
-  return (
-    <span
-      className={`absolute right-1 top-1 z-10 rounded-md border border-white/25 bg-black/30 font-medium text-white/95 shadow-sm backdrop-blur-md ${
-        compact ? 'px-1 py-px text-[8px] leading-tight' : 'px-1.5 py-0.5 text-[9px]'
-      }`}
-    >
-      {PLATFORM_LABELS[platform]}
-    </span>
-  );
 }
 
 function PlaylistCover({
@@ -60,7 +37,6 @@ function PlaylistCover({
         compact ? 'aspect-square w-full flex-shrink-0 rounded-md' : 'aspect-square w-full rounded-lg'
       }`}
     >
-      <PlatformGlassTag platform={playlist.platform} compact={compact} />
       {playlist.coverImgUrl ? (
         <img
           src={playlist.coverImgUrl}
@@ -285,7 +261,7 @@ export default function RecommendedPlaylistsPanel({
                 <div className="min-h-0">{renderCard(qqPlaylists[i])}</div>
               ) : !loading && i === 0 && qqPlaylists.length === 0 ? (
                 <p className="flex min-h-full items-center justify-center px-1 py-2 text-center text-[10px] text-netease-muted">
-                  暂无 QQ 推荐
+                  暂无推荐
                 </p>
               ) : (
                 <div aria-hidden />

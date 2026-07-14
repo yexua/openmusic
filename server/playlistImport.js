@@ -177,10 +177,10 @@ async function importMetingPlaylist(server, playlistId, defaultName) {
 
 export async function importNeteasePlaylist(input) {
   const playlistId = parseNeteasePlaylistId(input);
-  if (!playlistId) throw new Error('无法识别网易云歌单链接，请粘贴完整分享链接');
+  if (!playlistId) throw new Error('无法识别红点歌单链接，请粘贴完整分享链接');
 
   const [result, name] = await Promise.all([
-    importMetingPlaylist('netease', playlistId, '网易云歌单'),
+    importMetingPlaylist('netease', playlistId, '红点歌单'),
     fetchNeteasePlaylistName(playlistId),
   ]);
 
@@ -191,8 +191,8 @@ export async function importNeteasePlaylist(input) {
 export async function importQqPlaylist(input) {
   const playlistId = parseQqPlaylistId(input);
   if (!playlistId) {
-    throw new Error('无法识别 QQ 音乐歌单链接，请按提示获取分享链接');
+    throw new Error('无法识别绿点歌单链接，请按提示获取分享链接');
   }
 
-  return importMetingPlaylist('tencent', playlistId, 'QQ音乐歌单');
+  return importMetingPlaylist('tencent', playlistId, '绿点歌单');
 }

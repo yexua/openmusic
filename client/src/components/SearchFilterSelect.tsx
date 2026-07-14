@@ -7,9 +7,9 @@ export type SearchFilterMode = 'smart' | MusicSource;
 
 const OPTIONS: { value: SearchFilterMode; label: string; hint?: string }[] = [
   { value: 'smart', label: '智能去重', hint: '歌名与歌手相同视为同一首' },
-  { value: 'netease', label: '网易' },
-  { value: 'tencent', label: 'QQ' },
-  { value: 'kugou', label: '酷狗' },
+  { value: 'netease', label: '红点' },
+  { value: 'tencent', label: '绿点' },
+  { value: 'kugou', label: '蓝点' },
 ];
 
 function getLabel(mode: SearchFilterMode): string {

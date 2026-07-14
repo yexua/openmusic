@@ -109,16 +109,16 @@ function createMetingProvider(
 }
 
 export const neteaseProvider = createMetingProvider('netease', {
-  name: '网易云音乐',
-  shortName: '网易',
+  name: '红点',
+  shortName: '红点',
   color: '#ec4141',
   supportsSearch: true,
   supportsIdLookup: true,
 });
 
 export const tencentProvider = createMetingProvider('tencent', {
-  name: 'QQ音乐',
-  shortName: 'QQ',
+  name: '绿点',
+  shortName: '绿点',
   color: '#31c27c',
   supportsSearch: true,
   supportsIdLookup: false,

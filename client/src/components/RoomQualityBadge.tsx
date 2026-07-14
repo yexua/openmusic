@@ -16,17 +16,17 @@ export default function RoomQualityBadge({ audioQuality, className = '', onClick
 
   const content = (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-none text-netease-muted">
-      <Tooltip content={`我的网易音质：${getQualityLabel(quality.netease)}`}>
+      <Tooltip content={`红点音质：${getQualityLabel(quality.netease)}`}>
         <span className="whitespace-nowrap">
-          <span className="text-netease-red">网易</span>
+          <span className="text-netease-red">红点</span>
           {' '}
           {getQualityLabel(quality.netease)}
         </span>
       </Tooltip>
       <span className="text-white/20" aria-hidden>·</span>
-      <Tooltip content={`我的 QQ 音质：${getQualityLabel(quality.tencent)}`}>
+      <Tooltip content={`绿点音质：${getQualityLabel(quality.tencent)}`}>
         <span className="whitespace-nowrap">
-          <span className="text-[#31c27c]">QQ</span>
+          <span className="text-[#31c27c]">绿点</span>
           {' '}
           {getQualityLabel(quality.tencent)}
         </span>

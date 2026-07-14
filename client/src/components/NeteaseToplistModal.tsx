@@ -4,6 +4,16 @@ import type { SearchResult } from '../types';
 import { getNeteaseHotToplist } from '../api/music/toplist';
 import SongResultList from './SongResultList';
 
+function sanitizeToplistTitle(name?: string): string {
+  if (!name?.trim()) return '';
+  return name
+    .replace(/网易云?音乐?/g, '')
+    .replace(/QQ\s*音乐?/gi, '')
+    .replace(/酷狗音乐?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 interface Props {
   open: boolean;
   addingId: string | null;
@@ -12,7 +22,7 @@ interface Props {
 }
 
 export default function NeteaseToplistModal({ open, addingId, onClose, onAdd }: Props) {
-  const [title, setTitle] = useState('网易云热榜');
+  const [title, setTitle] = useState('热榜');
   const [songs, setSongs] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +31,7 @@ export default function NeteaseToplistModal({ open, addingId, onClose, onAdd }: 
     if (!open) {
       setSongs([]);
       setError('');
-      setTitle('网易云热榜');
+      setTitle('热榜');
       return;
     }
 
@@ -31,7 +41,7 @@ export default function NeteaseToplistModal({ open, addingId, onClose, onAdd }: 
     getNeteaseHotToplist()
       .then((data) => {
         if (cancelled) return;
-        setTitle(data.name || '网易云热榜');
+        setTitle(sanitizeToplistTitle(data.name) || '热榜');
         setSongs(data.songs);
       })
       .catch((err: unknown) => {

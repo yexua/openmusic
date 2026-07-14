@@ -181,7 +181,7 @@ export default function Home() {
 
   usePageSeo({
     title: '一起听歌 · 房间大厅',
-    description: '创建或加入点歌房间，和好友一起听歌、多人实时同步播放；支持网易云 / QQ / 酷狗搜索点歌与歌词跟唱。',
+    description: '创建或加入点歌房间，和好友一起听歌、多人实时同步播放；支持多音源搜索点歌与歌词跟唱。',
     path: '/',
   });
 
@@ -508,6 +508,17 @@ export default function Home() {
               三平台曲库
             </span>
           </div>
+          <p className="text-xs text-white/35">
+            友链：
+            <a
+              href="https://linux.do/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-1 text-white/50 transition-colors hover:text-white/75"
+            >
+              Linux.do
+            </a>
+          </p>
           {/* <p className="flex flex-wrap items-center justify-center gap-1 text-xs text-white/35">
             本网站由
             <a

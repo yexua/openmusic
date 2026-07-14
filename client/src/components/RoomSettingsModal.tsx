@@ -261,7 +261,7 @@ export default function RoomSettingsModal({
           {activeTab === 'fm' && isOwner && (
             <section>
               <p className="mb-3 text-xs text-netease-muted">
-                队列为空时通过网易云私人漫游自动推荐下一首
+                队列为空时通过私人漫游自动推荐下一首
               </p>
               <div className="space-y-1.5">
                 {NETEASE_FM_MODE_OPTIONS.map((opt) => (

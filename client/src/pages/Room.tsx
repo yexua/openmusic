@@ -779,7 +779,7 @@ export default function Room() {
     setOverlaySearchMode('song');
     setPlaylistSearchResults([]);
     setPlaylistSearchTotal(0);
-    setSearchedKeyword(`正在解析${platform === 'netease' ? '网易云' : 'QQ音乐'}歌单…`);
+    setSearchedKeyword(`正在解析${platform === 'netease' ? '红点' : '绿点'}歌单…`);
     setResults([]);
 
     try {
@@ -1584,7 +1584,7 @@ export default function Room() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder={searchMode === 'playlist' ? '搜索网易/QQ歌单...' : '搜索歌曲、歌手...'}
+          placeholder={searchMode === 'playlist' ? '搜索红点/绿点歌单...' : '搜索歌曲、歌手...'}
           className="w-full bg-netease-card border border-netease-border rounded-xl sm:rounded-2xl pl-10 sm:pl-12 pr-4 py-3 sm:py-3.5 text-sm sm:text-base text-white placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 transition-colors"
         />
       </div>
@@ -1627,7 +1627,7 @@ export default function Room() {
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <p className="truncate text-sm font-medium">{playlist.name}</p>
                   <p className="truncate text-xs text-netease-muted">
-                    {playlist.creatorName || (playlist.platform === 'qq' ? 'QQ音乐歌单' : '网易云歌单')} · {playlist.trackCount} 首
+                    {playlist.creatorName || (playlist.platform === 'qq' ? '绿点歌单' : '红点歌单')} · {playlist.trackCount} 首
                   </p>
                 </div>
                 <SourceBadge source={playlist.platform === 'qq' ? 'tencent' : 'netease'} variant="muted" />
@@ -1707,7 +1707,7 @@ export default function Room() {
           value={overlayQuery}
           onChange={(e) => setOverlayQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleOverlaySearch()}
-          placeholder={overlaySearchMode === 'playlist' ? '搜索网易/QQ歌单...' : '搜索歌曲、歌手...'}
+          placeholder={overlaySearchMode === 'playlist' ? '搜索红点/绿点歌单...' : '搜索歌曲、歌手...'}
           className="w-full bg-netease-card border border-netease-border rounded-xl pl-9 pr-3 py-2 text-sm text-white placeholder:text-netease-muted/50 focus:outline-none focus:border-netease-red/50 transition-colors"
         />
       </div>
@@ -1732,7 +1732,7 @@ export default function Room() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder={searchMode === 'playlist' ? '搜索网易/QQ歌单...' : '搜索歌曲、歌手...'}
+          placeholder={searchMode === 'playlist' ? '搜索红点/绿点歌单...' : '搜索歌曲、歌手...'}
           className="min-w-0 flex-1 border-none bg-transparent text-[13.5px] tracking-wide text-white outline-none placeholder:text-white/22"
         />
         <button

@@ -75,8 +75,8 @@ async function fetchKugouDetail(id: string): Promise<KugouDetail | null> {
 
 export const kugouProvider: MusicProvider = {
   id: 'kugou',
-  name: '酷狗音乐',
-  shortName: '酷狗',
+  name: '蓝点',
+  shortName: '蓝点',
   color: '#2688ee',
   supportsSearch: true,
   supportsIdLookup: false,

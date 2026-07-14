@@ -11,7 +11,7 @@ export async function getNeteaseHotToplist(limit = 200): Promise<NeteaseToplistR
   const res = await fetchWithTimeout(`/api/music/toplist/netease?limit=${limit}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || '获取网易云热榜失败');
+    throw new Error(data.error || '获取热榜失败');
   }
   return res.json();
 }

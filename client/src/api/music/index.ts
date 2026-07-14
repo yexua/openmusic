@@ -1,4 +1,5 @@
 import type { MusicSource, RoomCheckResult, RoomSummary, SearchResult, Song, HotSongItem } from '../../types';
+import { getSourceShortLabel } from '../../lib/sourceLabels';
 import type { MusicProviderMeta } from './types';
 import { providers, getAllSources } from './sources';
 import { interleaveSearchResults } from './merge';
@@ -153,14 +154,13 @@ export function getCoverUrl(
 export type { CoverSize } from '../../lib/coverUrl';
 
 export function getSourceLabel(source?: MusicSource): string {
-  if (!source) return '网易';
-  return getProvider(source).shortName;
+  return getSourceShortLabel(source);
 }
 
 export function parseLrc(lrc: string): import('../../types').LyricLine[] {
   const lines: import('../../types').LyricLine[] = [];
   const regex = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
-  /** 网易云等常用 99:xx 存放页脚推广，非真实歌词时间 */
+  /** 部分音源常用 99:xx 存放页脚推广，非真实歌词时间 */
   const PHANTOM_LRC_MINUTES = 90;
 
   for (const line of lrc.split('\n')) {

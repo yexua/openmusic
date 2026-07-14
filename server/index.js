@@ -450,7 +450,7 @@ app.get('/api/music/toplist/netease', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Netease toplist error:', err.message);
-    res.status(502).json({ error: err.message || '获取网易云热榜失败' });
+    res.status(502).json({ error: err.message || '获取热榜失败' });
   }
 });
 
@@ -491,7 +491,7 @@ app.get('/api/music/netease/playlists/search', async (req, res) => {
   try {
     const targetUrl = buildMetingUrl({ server: 'netease', type: 'search_playlist', id: keyword });
     const response = await fetchMeting(targetUrl, {}, 10000);
-    if (!response.ok) return res.status(response.status).json({ error: '网易云歌单搜索失败' });
+    if (!response.ok) return res.status(response.status).json({ error: '红点歌单搜索失败' });
     const data = await response.json();
     const playlists = Array.isArray(data) ? data : [];
     const normalized = playlists.map((item) => ({
@@ -511,7 +511,7 @@ app.get('/api/music/netease/playlists/search', async (req, res) => {
     });
   } catch (err) {
     console.error('Netease playlist search error:', err.message);
-    res.status(502).json({ error: '网易云歌单搜索失败' });
+    res.status(502).json({ error: '红点歌单搜索失败' });
   }
 });
 
@@ -519,28 +519,28 @@ app.get('/api/music/sources', (_req, res) => {
   const sources = [
     {
       id: 'netease',
-      name: '网易云音乐',
-      shortName: '网易',
+      name: '红点',
+      shortName: '红点',
       color: '#ec4141',
       supportsSearch: true,
       supportsIdLookup: true,
     },
     {
       id: 'tencent',
-      name: 'QQ音乐',
-      shortName: 'QQ',
+      name: '绿点',
+      shortName: '绿点',
       color: '#31c27c',
       supportsSearch: true,
       supportsIdLookup: false,
     },
     {
       id: 'kugou',
-      name: '酷狗音乐',
-      shortName: '酷狗',
+      name: '蓝点',
+      shortName: '蓝点',
       color: '#2688ee',
       supportsSearch: isCyapiConfigured(),
       supportsIdLookup: false,
-      description: isCyapiConfigured() ? '通过迟言 API 搜索' : '请配置 CYAPI_KEY（酷狗）',
+      description: isCyapiConfigured() ? '通过迟言 API 搜索' : '请配置 CYAPI_KEY（蓝点）',
     },
   ];
   res.json(sources);
@@ -605,7 +605,7 @@ app.get('/api/media-proxy', async (req, res) => {
   }
 });
 
-/** cyapi 酷狗音乐搜索 */
+/** cyapi 蓝点音乐搜索 */
 app.get('/api/music/cyapi/kugou/search', async (req, res) => {
   if (!limitProxyRequest(`kugou:${getRequestIp(req)}`)) {
     return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
@@ -624,11 +624,11 @@ app.get('/api/music/cyapi/kugou/search', async (req, res) => {
     res.json(await searchKugouMusic(keyword, num));
   } catch (err) {
     console.error('Cyapi Kugou search error:', err.message);
-    res.status(502).json({ error: '酷狗音乐搜索失败' });
+    res.status(502).json({ error: '蓝点音乐搜索失败' });
   }
 });
 
-/** 导入外部歌单（网易云 / QQ 音乐分享链接） */
+/** 导入外部歌单（分享链接） */
 app.post('/api/music/playlist/import', async (req, res) => {
   if (!limitProxyRequest(`playlist:${getRequestIp(req)}`)) {
     return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
@@ -652,7 +652,7 @@ app.post('/api/music/playlist/import', async (req, res) => {
   }
 });
 
-/** cyapi 酷狗音乐详情（播放链接、歌词） */
+/** cyapi 蓝点音乐详情（播放链接、歌词） */
 app.get('/api/music/cyapi/kugou/song', async (req, res) => {
   if (!limitProxyRequest(`kugou-song:${getRequestIp(req)}`)) {
     return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
@@ -671,7 +671,7 @@ app.get('/api/music/cyapi/kugou/song', async (req, res) => {
     res.json(detail);
   } catch (err) {
     console.error('Cyapi Kugou song error:', err.message);
-    res.status(502).json({ error: '酷狗音乐获取失败' });
+    res.status(502).json({ error: '蓝点音乐获取失败' });
   }
 });
 
@@ -2087,6 +2087,6 @@ await initRooms();
 httpServer.listen(PORT, () => {
   console.log(`🎵 OpenMusic 服务运行在 http://localhost:${PORT}`);
   console.log(`📡 Meting API: ${METING_API_URL}`);
-  console.log(`🎤 Cyapi (QQ/酷狗): ${isCyapiConfigured() ? '已配置' : '未配置'}`);
+  console.log(`🎤 Cyapi (绿点/蓝点): ${isCyapiConfigured() ? '已配置' : '未配置'}`);
   console.log(`💾 房间存储: ${isRedisEnabled() ? 'Redis' : '内存'}`);
 });
