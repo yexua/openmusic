@@ -3,11 +3,14 @@ import { createPortal } from 'react-dom';
 import { Minus, Plus, Sparkles, X } from 'lucide-react';
 import { NETEASE_FM_MODE_OPTIONS, getFmModeLabel, normalizeFmMode } from '../api/music/fmMode';
 import type { BannedSong } from '../types';
+import type { DislikeSkipMode } from '../lib/dislikeSkip';
 import SourceBadge from './SourceBadge';
 
 const ANNOUNCEMENT_MAX_LENGTH = 2000;
 const MIN_STAY_MINUTES_MAX = 24 * 60;
 const MAX_PER_USER_MAX = 50;
+const DISLIKE_SKIP_THRESHOLD_MAX = 50;
+const CLEAR_ON_LEAVE_DELAY_MINUTES_MAX = 24 * 60;
 const COOLDOWN_OPTIONS = [0, 10, 30, 60, 120] as const;
 const QUEUE_LIMIT_OPTIONS = [50, 100, 200] as const;
 
@@ -16,6 +19,11 @@ type SettingsTab = 'fm' | 'member' | 'announcement' | 'songRequest';
 export interface SongRequestSettings {
   enabled: boolean;
   memberJumpEnabled: boolean;
+  dislikeSkipMode: DislikeSkipMode;
+  dislikeSkipThreshold: number;
+  dislikeSkipPercent: number;
+  clearSongsOnLeaveEnabled: boolean;
+  clearSongsOnLeaveDelayMinutes: number;
   minStayMinutes: number;
   maxPerUser: number;
   cooldownSec: number;
@@ -25,6 +33,11 @@ export interface SongRequestSettings {
 function songRequestEqual(a: SongRequestSettings, b: SongRequestSettings) {
   return a.enabled === b.enabled
     && a.memberJumpEnabled === b.memberJumpEnabled
+    && a.dislikeSkipMode === b.dislikeSkipMode
+    && a.dislikeSkipThreshold === b.dislikeSkipThreshold
+    && a.dislikeSkipPercent === b.dislikeSkipPercent
+    && a.clearSongsOnLeaveEnabled === b.clearSongsOnLeaveEnabled
+    && a.clearSongsOnLeaveDelayMinutes === b.clearSongsOnLeaveDelayMinutes
     && a.minStayMinutes === b.minStayMinutes
     && a.maxPerUser === b.maxPerUser
     && a.cooldownSec === b.cooldownSec
@@ -260,6 +273,11 @@ export default function RoomSettingsModal({
     || draftAnnouncementText.trim() !== announcementText.trim();
   const songRequestDirty = draftSongRequest.enabled !== songRequest.enabled
     || draftSongRequest.memberJumpEnabled !== songRequest.memberJumpEnabled
+    || draftSongRequest.dislikeSkipMode !== songRequest.dislikeSkipMode
+    || draftSongRequest.dislikeSkipThreshold !== songRequest.dislikeSkipThreshold
+    || draftSongRequest.dislikeSkipPercent !== songRequest.dislikeSkipPercent
+    || draftSongRequest.clearSongsOnLeaveEnabled !== songRequest.clearSongsOnLeaveEnabled
+    || draftSongRequest.clearSongsOnLeaveDelayMinutes !== songRequest.clearSongsOnLeaveDelayMinutes
     || draftSongRequest.minStayMinutes !== songRequest.minStayMinutes
     || draftSongRequest.maxPerUser !== songRequest.maxPerUser
     || draftSongRequest.cooldownSec !== songRequest.cooldownSec
@@ -441,6 +459,93 @@ export default function RoomSettingsModal({
                   label="允许成员插队"
                   description="开启后成员可对自己的点歌插队；房主与管理员始终可插队"
                 />
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                  <label className="text-sm font-medium text-white">
+                    踩歌切歌规则
+                  </label>
+                  <p className="mt-0.5 text-xs text-netease-muted">
+                    正在播放的歌曲被踩满后自动切歌
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={songRequestSaving}
+                      onClick={() => setDraftSongRequest((prev) => ({ ...prev, dislikeSkipMode: 'count' }))}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                        draftSongRequest.dislikeSkipMode === 'count'
+                          ? 'bg-netease-red/20 text-white'
+                          : 'bg-white/5 text-netease-muted hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      固定人数
+                    </button>
+                    <button
+                      type="button"
+                      disabled={songRequestSaving}
+                      onClick={() => setDraftSongRequest((prev) => ({ ...prev, dislikeSkipMode: 'percent' }))}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                        draftSongRequest.dislikeSkipMode === 'percent'
+                          ? 'bg-netease-red/20 text-white'
+                          : 'bg-white/5 text-netease-muted hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      在线比例
+                    </button>
+                  </div>
+                  {draftSongRequest.dislikeSkipMode === 'count' ? (
+                    <NumberStepper
+                      id="settings-dislike-threshold"
+                      value={draftSongRequest.dislikeSkipThreshold}
+                      min={1}
+                      max={DISLIKE_SKIP_THRESHOLD_MAX}
+                      disabled={songRequestSaving}
+                      suffix="人"
+                      onChange={(dislikeSkipThreshold) => setDraftSongRequest((prev) => ({ ...prev, dislikeSkipThreshold }))}
+                    />
+                  ) : (
+                    <NumberStepper
+                      id="settings-dislike-percent"
+                      value={draftSongRequest.dislikeSkipPercent}
+                      min={1}
+                      max={100}
+                      disabled={songRequestSaving}
+                      suffix="%"
+                      onChange={(dislikeSkipPercent) => setDraftSongRequest((prev) => ({ ...prev, dislikeSkipPercent }))}
+                    />
+                  )}
+                </div>
+
+                <Toggle
+                  checked={draftSongRequest.clearSongsOnLeaveEnabled}
+                  disabled={songRequestSaving}
+                  onChange={(clearSongsOnLeaveEnabled) => setDraftSongRequest((prev) => ({ ...prev, clearSongsOnLeaveEnabled }))}
+                  label="退出后清除已点歌曲"
+                  description="成员离房后，在等待时间到期仍未回来则清除其待播点歌"
+                />
+
+                {draftSongRequest.clearSongsOnLeaveEnabled && (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                    <label htmlFor="settings-clear-on-leave-delay" className="text-sm font-medium text-white">
+                      退出清除等待时间
+                    </label>
+                    <p className="mt-0.5 text-xs text-netease-muted">
+                      0 表示立即清除；期内重新进房会取消清除
+                    </p>
+                    <NumberStepper
+                      id="settings-clear-on-leave-delay"
+                      value={draftSongRequest.clearSongsOnLeaveDelayMinutes}
+                      min={0}
+                      max={CLEAR_ON_LEAVE_DELAY_MINUTES_MAX}
+                      disabled={songRequestSaving}
+                      suffix="分钟"
+                      onChange={(clearSongsOnLeaveDelayMinutes) => setDraftSongRequest((prev) => ({
+                        ...prev,
+                        clearSongsOnLeaveDelayMinutes,
+                      }))}
+                    />
+                  </div>
+                )}
 
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
                   <label htmlFor="settings-min-stay" className="text-sm font-medium text-white">

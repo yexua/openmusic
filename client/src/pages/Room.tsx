@@ -27,6 +27,7 @@ import {
   applyPureModeDisguise,
   clearPureModeDisguise,
 } from '../lib/roomPureMode';
+import { normalizeDislikeSkipMode } from '../lib/dislikeSkip';
 
 import { songKey, getCoverUrl } from '../api/music';
 import SongCover from '../components/SongCover';
@@ -372,6 +373,11 @@ export default function Room() {
   const songRequestSettings: SongRequestSettings = useMemo(() => ({
     enabled: room?.songRequestEnabled !== false,
     memberJumpEnabled: Boolean(room?.memberJumpEnabled),
+    dislikeSkipMode: normalizeDislikeSkipMode(room?.dislikeSkipMode),
+    dislikeSkipThreshold: Math.max(1, room?.dislikeSkipThreshold ?? 5),
+    dislikeSkipPercent: Math.min(100, Math.max(1, room?.dislikeSkipPercent ?? 50)),
+    clearSongsOnLeaveEnabled: Boolean(room?.clearSongsOnLeaveEnabled),
+    clearSongsOnLeaveDelayMinutes: Math.floor((room?.clearSongsOnLeaveDelaySec ?? 60) / 60),
     minStayMinutes: Math.floor((room?.songRequestMinStaySec ?? 0) / 60),
     maxPerUser: room?.songRequestMaxPerUser ?? 0,
     cooldownSec: room?.songRequestCooldownSec ?? 0,
@@ -379,6 +385,11 @@ export default function Room() {
   }), [
     room?.songRequestEnabled,
     room?.memberJumpEnabled,
+    room?.dislikeSkipMode,
+    room?.dislikeSkipThreshold,
+    room?.dislikeSkipPercent,
+    room?.clearSongsOnLeaveEnabled,
+    room?.clearSongsOnLeaveDelaySec,
     room?.songRequestMinStaySec,
     room?.songRequestMaxPerUser,
     room?.songRequestCooldownSec,
@@ -1049,6 +1060,11 @@ export default function Room() {
     const res = await setSongRequestEnabled({
       enabled: settings.enabled,
       memberJumpEnabled: settings.memberJumpEnabled,
+      dislikeSkipMode: settings.dislikeSkipMode,
+      dislikeSkipThreshold: settings.dislikeSkipThreshold,
+      dislikeSkipPercent: settings.dislikeSkipPercent,
+      clearSongsOnLeaveEnabled: settings.clearSongsOnLeaveEnabled,
+      clearSongsOnLeaveDelaySec: settings.clearSongsOnLeaveDelayMinutes * 60,
       minStaySec: settings.minStayMinutes * 60,
       maxPerUser: settings.maxPerUser,
       cooldownSec: settings.cooldownSec,

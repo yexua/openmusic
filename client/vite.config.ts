@@ -29,6 +29,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
+        // 固定资源名，部署覆盖同路径即可；配合服务端 no-cache，避免 EO 缓存 hash 文件名导致每次清缓存
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
           if (id.includes('three') || id.includes('@react-three')) {

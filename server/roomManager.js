@@ -29,6 +29,12 @@ const ROOM_EMPTY_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_QUEUE_MAX_LENGTH = 200;
 const ALLOWED_QUEUE_MAX_LENGTHS = [50, 100, 200];
 const ALLOWED_SONG_REQUEST_COOLDOWNS_SEC = [0, 10, 30, 60, 120];
+const DEFAULT_DISLIKE_SKIP_THRESHOLD = 5;
+const DEFAULT_DISLIKE_SKIP_MODE = 'count';
+const DEFAULT_DISLIKE_SKIP_PERCENT = 50;
+const MAX_DISLIKE_SKIP_THRESHOLD = 50;
+const DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 60;
+const MAX_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 24 * 60 * 60;
 const MAX_BANNED_SONGS = 100;
 const MAX_CHAT_MESSAGES = 300;
 const MAX_SONG_HISTORY = 150;
@@ -39,15 +45,25 @@ const MAX_RANDOM_PREFETCH_ATTEMPTS = 20;
 
 /** @type {((roomId: string) => void) | null} */
 let onRoomPrefetchReady = null;
+/** @type {((roomId: string) => void) | null} */
+let onRoomStructureChanged = null;
 
 export function setOnRoomPrefetchReady(handler) {
   onRoomPrefetchReady = handler;
+}
+
+export function setOnRoomStructureChanged(handler) {
+  onRoomStructureChanged = handler;
 }
 
 function notifyRoomPrefetchReady(room) {
   if (room?.nextRandom && onRoomPrefetchReady) {
     onRoomPrefetchReady(room.id);
   }
+}
+
+function notifyRoomStructureChanged(roomId) {
+  if (onRoomStructureChanged) onRoomStructureChanged(roomId);
 }
 const AUTO_ADVANCE_GRACE_SEC = 0.15;
 const NETEASE_CANONICAL = new Set(['standard', 'higher', 'exhigh', 'lossless', 'hires']);
@@ -123,6 +139,7 @@ function scheduleRoomDestroy(roomId) {
   room.destroyTimer = setTimeout(() => {
     const current = rooms.get(roomId);
     if (current && current.users.size === 0) {
+      clearAllPendingLeaveClears(current);
       void deleteRoomChatImages(roomId).finally(() => {
         rooms.delete(roomId);
         invalidateRoomsListCache();
@@ -173,6 +190,11 @@ function snapshotRoomForStorage(room) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
+    dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
+    dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
+    clearSongsOnLeaveEnabled: Boolean(room.clearSongsOnLeaveEnabled),
+    clearSongsOnLeaveDelaySec: normalizeClearSongsOnLeaveDelaySec(room.clearSongsOnLeaveDelaySec),
     bannedSongs: serializeBannedSongs(room.bannedSongs),
     memberTiers: serializeMemberTiersMap(room.memberTiers),
     memberSettings: serializeMemberSettings(room.memberSettings),
@@ -218,6 +240,13 @@ function restoreRoomFromStorage(data) {
   room.songRequestCooldownSec = normalizeSongRequestCooldownSec(data.songRequestCooldownSec);
   room.queueMaxLength = normalizeQueueMaxLength(data.queueMaxLength);
   room.memberJumpEnabled = Boolean(data.memberJumpEnabled);
+  room.dislikeSkipMode = normalizeDislikeSkipMode(data.dislikeSkipMode);
+  room.dislikeSkipThreshold = normalizeDislikeSkipThreshold(data.dislikeSkipThreshold);
+  room.dislikeSkipPercent = normalizeDislikeSkipPercent(data.dislikeSkipPercent);
+  room.clearSongsOnLeaveEnabled = Boolean(data.clearSongsOnLeaveEnabled);
+  room.clearSongsOnLeaveDelaySec = normalizeClearSongsOnLeaveDelaySec(
+    data.clearSongsOnLeaveDelaySec ?? DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC,
+  );
   room.bannedSongs = restoreBannedSongs(data.bannedSongs);
   room.memberTiers = restoreMemberTiersFromStorage(data.memberTiers);
   room.memberSettings = normalizeMemberSettings(data.memberSettings);
@@ -378,6 +407,12 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     songRequestCooldownSec: 0,
     queueMaxLength: DEFAULT_QUEUE_MAX_LENGTH,
     memberJumpEnabled: false,
+    dislikeSkipMode: DEFAULT_DISLIKE_SKIP_MODE,
+    dislikeSkipThreshold: DEFAULT_DISLIKE_SKIP_THRESHOLD,
+    dislikeSkipPercent: DEFAULT_DISLIKE_SKIP_PERCENT,
+    clearSongsOnLeaveEnabled: false,
+    clearSongsOnLeaveDelaySec: DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC,
+    pendingLeaveClears: new Map(),
     bannedSongs: [],
     lastSongRequestAt: new Map(),
     memberTiers: new Map(),
@@ -504,6 +539,86 @@ function normalizeQueueMaxLength(value) {
   const length = Math.floor(Number(value) || DEFAULT_QUEUE_MAX_LENGTH);
   if (!ALLOWED_QUEUE_MAX_LENGTHS.includes(length)) return DEFAULT_QUEUE_MAX_LENGTH;
   return length;
+}
+
+function normalizeDislikeSkipThreshold(value) {
+  const count = Math.floor(Number(value));
+  if (!Number.isFinite(count) || count < 1) return DEFAULT_DISLIKE_SKIP_THRESHOLD;
+  return Math.min(count, MAX_DISLIKE_SKIP_THRESHOLD);
+}
+
+function normalizeDislikeSkipMode(value) {
+  return value === 'percent' ? 'percent' : 'count';
+}
+
+function normalizeDislikeSkipPercent(value) {
+  const pct = Math.floor(Number(value));
+  if (!Number.isFinite(pct) || pct < 1) return DEFAULT_DISLIKE_SKIP_PERCENT;
+  return Math.min(pct, 100);
+}
+
+function resolveDislikeSkipThreshold(room) {
+  const mode = normalizeDislikeSkipMode(room?.dislikeSkipMode);
+  if (mode === 'percent') {
+    const userCount = Math.max(1, room.users?.size ?? 0);
+    const percent = normalizeDislikeSkipPercent(room.dislikeSkipPercent);
+    return Math.max(1, Math.ceil(userCount * percent / 100));
+  }
+  return normalizeDislikeSkipThreshold(room.dislikeSkipThreshold);
+}
+
+function normalizeClearSongsOnLeaveDelaySec(value) {
+  const sec = Math.floor(Number(value));
+  if (!Number.isFinite(sec) || sec < 0) return DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC;
+  return Math.min(sec, MAX_CLEAR_SONGS_ON_LEAVE_DELAY_SEC);
+}
+
+function ensurePendingLeaveClears(room) {
+  if (!room.pendingLeaveClears) room.pendingLeaveClears = new Map();
+  return room.pendingLeaveClears;
+}
+
+function cancelPendingLeaveClear(room, userId) {
+  const pending = ensurePendingLeaveClears(room);
+  const timer = pending.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    pending.delete(userId);
+  }
+}
+
+function clearAllPendingLeaveClears(room) {
+  const pending = ensurePendingLeaveClears(room);
+  for (const timer of pending.values()) clearTimeout(timer);
+  pending.clear();
+}
+
+function removeUserSongsFromQueue(room, userId) {
+  if (!room || !userId) return false;
+  const removedIds = new Set();
+  for (const item of room.queue) {
+    if (item.requestedById === userId) removedIds.add(item.queueId);
+  }
+  if (removedIds.size === 0) return false;
+  room.queue = room.queue.filter((item) => item.requestedById !== userId);
+  room.jumpRequests = room.jumpRequests.filter((r) => !removedIds.has(r.queueId));
+  return true;
+}
+
+function scheduleClearUserSongsOnLeave(room, userId) {
+  if (!room?.clearSongsOnLeaveEnabled || !userId) return;
+  cancelPendingLeaveClear(room, userId);
+  const delayMs = normalizeClearSongsOnLeaveDelaySec(room.clearSongsOnLeaveDelaySec) * 1000;
+  const pending = ensurePendingLeaveClears(room);
+  const timer = setTimeout(() => {
+    pending.delete(userId);
+    const current = rooms.get(room.id);
+    if (!current || current.users.has(userId)) return;
+    if (!removeUserSongsFromQueue(current, userId)) return;
+    persistRoom(current);
+    notifyRoomStructureChanged(current.id);
+  }, delayMs);
+  pending.set(userId, timer);
 }
 
 function getRoomQueueMaxLength(room) {
@@ -781,6 +896,7 @@ export function addUser(roomId, userId, nickname, options = {}) {
   }
 
   cancelRoomDestroy(room);
+  cancelPendingLeaveClear(room, userId);
 
   const existing = room.users.get(userId);
   const connectionIds = normalizeConnectionIds(existing, options.connectionId || null);
@@ -1104,6 +1220,40 @@ export function postMemberWelcomeMessage(roomId, userId) {
   return serializeChatMessage(message);
 }
 
+function formatSongTitle(song) {
+  const name = String(song?.name || '').trim() || '未知歌曲';
+  return `《${name.slice(0, 40)}》`;
+}
+
+function formatActorName(user) {
+  return String(user?.nickname || '匿名').trim().slice(0, 20) || '匿名';
+}
+
+/** 聊天室居中系统提示（点歌/点赞等） */
+function appendSystemChatMessage(room, text) {
+  if (!room) return null;
+  const content = String(text || '').trim().slice(0, 200);
+  if (!content) return null;
+
+  const message = {
+    id: generateId(),
+    userId: 'system',
+    nickname: '系统',
+    text: content,
+    kind: 'system',
+    mentions: [],
+    replyTo: null,
+    timestamp: Date.now(),
+  };
+
+  room.messages.push(message);
+  if (room.messages.length > MAX_CHAT_MESSAGES) {
+    room.messages.splice(0, room.messages.length - MAX_CHAT_MESSAGES);
+  }
+  // 随下一次 persist 落盘；调用方通常紧接着 persistRoom
+  return serializeChatMessage(message);
+}
+
 function isUserChatMuted(room, userId) {
   if (!room || !userId) return false;
   if (isRoomCreator(room, userId)) return false;
@@ -1186,6 +1336,21 @@ export function setSongRequestEnabled(roomId, actorId, options = {}, connectionI
   }
   if (options.memberJumpEnabled !== undefined) {
     room.memberJumpEnabled = Boolean(options.memberJumpEnabled);
+  }
+  if (options.dislikeSkipMode !== undefined) {
+    room.dislikeSkipMode = normalizeDislikeSkipMode(options.dislikeSkipMode);
+  }
+  if (options.dislikeSkipThreshold !== undefined) {
+    room.dislikeSkipThreshold = normalizeDislikeSkipThreshold(options.dislikeSkipThreshold);
+  }
+  if (options.dislikeSkipPercent !== undefined) {
+    room.dislikeSkipPercent = normalizeDislikeSkipPercent(options.dislikeSkipPercent);
+  }
+  if (options.clearSongsOnLeaveEnabled !== undefined) {
+    room.clearSongsOnLeaveEnabled = Boolean(options.clearSongsOnLeaveEnabled);
+  }
+  if (options.clearSongsOnLeaveDelaySec !== undefined) {
+    room.clearSongsOnLeaveDelaySec = normalizeClearSongsOnLeaveDelaySec(options.clearSongsOnLeaveDelaySec);
   }
 
   persistRoom(room);
@@ -1304,6 +1469,7 @@ export async function kickUser(roomId, actorId, targetUserId, connectionId = nul
   removeUserFromAdmins(room, targetUserId);
 
   if (room.users.size === 0) {
+    clearAllPendingLeaveClears(room);
     if (room.isPlaying && room.current) {
       room.currentTime = getPlaybackTime(room);
       room.startedAt = null;
@@ -1330,6 +1496,8 @@ export async function kickUser(roomId, actorId, targetUserId, connectionId = nul
 
   room.jumpRequests = room.jumpRequests.filter((r) => room.users.has(r.requestedBy));
   room.skipRequests = room.skipRequests.filter((r) => room.users.has(r.requestedBy));
+
+  scheduleClearUserSongsOnLeave(room, targetUserId);
 
   persistRoom(room);
   invalidateRoomsListCache();
@@ -1377,6 +1545,7 @@ export function removeUser(roomId, userId, connectionId = null) {
   // 管理员身份在主动离房时保留，重进后恢复；仅踢人时清除（见 kickUser）
 
   if (room.users.size === 0) {
+    clearAllPendingLeaveClears(room);
     // 刷新/断线时房间会短暂无人：保留 isPlaying，仅冻结进度，便于重新进入后继续播放
     if (room.isPlaying && room.current) {
       room.currentTime = getPlaybackTime(room);
@@ -1400,6 +1569,8 @@ export function removeUser(roomId, userId, connectionId = null) {
 
   room.jumpRequests = room.jumpRequests.filter((r) => room.users.has(r.requestedBy));
   room.skipRequests = room.skipRequests.filter((r) => room.users.has(r.requestedBy));
+
+  scheduleClearUserSongsOnLeave(room, userId);
 
   persistRoom(room);
   invalidateRoomsListCache();
@@ -1544,8 +1715,12 @@ export async function addToQueue(roomId, song, requestedByUser) {
     });
   }
 
+  const systemMessage = appendSystemChatMessage(
+    room,
+    `${formatActorName(requestedBy)} 点了 ${formatSongTitle(item)}`,
+  );
   persistRoom(room);
-  return { room: serializeRoom(room) };
+  return { room: serializeRoom(room), systemMessage };
 }
 
 export function toggleQueueLike(roomId, userId, queueId) {
@@ -1559,13 +1734,62 @@ export function toggleQueueLike(roomId, userId, queueId) {
 
   const likedByIds = Array.isArray(item.likedByIds) ? item.likedByIds : [];
   const nextLiked = !likedByIds.includes(userId);
+  if (nextLiked && isQueueRequester(item, userId, user)) {
+    return { error: '不能给自己的歌点赞' };
+  }
   item.likedByIds = nextLiked ? [...likedByIds, userId] : likedByIds.filter((id) => id !== userId);
   sortQueueByPriority(room);
+  const systemMessage = nextLiked
+    ? appendSystemChatMessage(room, `${formatActorName(user)} 点赞了 ${formatSongTitle(item)}`)
+    : null;
   persistRoom(room);
   return {
     liked: nextLiked,
     queue: room.queue.map(serializeQueueItemForRoom).filter(Boolean),
     current: serializeQueueItemForRoom(room.current),
+    systemMessage,
+  };
+}
+
+export async function toggleCurrentDislike(roomId, userId) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  const user = room.users.get(userId);
+  if (!user) return { error: '未加入房间' };
+  if (!room.current) return { error: '当前没有正在播放的歌曲' };
+
+  const dislikedByIds = Array.isArray(room.current.dislikedByIds) ? room.current.dislikedByIds : [];
+  const nextDisliked = !dislikedByIds.includes(userId);
+  room.current.dislikedByIds = nextDisliked
+    ? [...dislikedByIds, userId]
+    : dislikedByIds.filter((id) => id !== userId);
+
+  const songTitle = formatSongTitle(room.current);
+  const mode = normalizeDislikeSkipMode(room.dislikeSkipMode);
+  const threshold = resolveDislikeSkipThreshold(room);
+  const dislikeCount = room.current.dislikedByIds.length;
+  let skipped = false;
+  let systemMessage = null;
+  if (dislikeCount >= threshold) {
+    await playNext(room, { allowFetchRandom: false });
+    skipped = true;
+    systemMessage = appendSystemChatMessage(
+      room,
+      `${formatActorName(user)} 踩歌达到人数，已切掉 ${songTitle}`,
+    );
+  }
+
+  persistRoom(room);
+  return {
+    disliked: nextDisliked,
+    skipped,
+    dislikeCount: skipped ? 0 : dislikeCount,
+    threshold,
+    dislikeSkipMode: mode,
+    dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
+    roomUserCount: room.users.size,
+    room: serializeRoom(room),
+    systemMessage,
   };
 }
 
@@ -1583,10 +1807,15 @@ export function removeFromQueue(roomId, socketId, queueId) {
     return { error: '只能删除自己点的歌' };
   }
 
+  const songTitle = formatSongTitle(item);
   room.queue = room.queue.filter((s) => s.queueId !== queueId);
   room.jumpRequests = room.jumpRequests.filter((r) => r.queueId !== queueId);
+  const systemMessage = appendSystemChatMessage(
+    room,
+    `${formatActorName(user)} 移除了 ${songTitle}`,
+  );
   persistRoom(room);
-  return { room: serializeRoom(room) };
+  return { room: serializeRoom(room), systemMessage };
 }
 
 export function clearQueue(roomId, userId) {
@@ -1714,7 +1943,9 @@ function recordSongPlayHistory(room, song) {
 
 function setCurrentSong(room, song) {
   room.randomLoading = false;
-  room.current = serializeQueueItemForRoom(song);
+  const next = serializeQueueItemForRoom(song);
+  if (next) next.dislikedByIds = [];
+  room.current = next;
   room.isPlaying = true;
   room.currentTime = 0;
   room.startedAt = Date.now();
@@ -1864,9 +2095,14 @@ export async function skipSong(roomId, socketId, connectionId = null) {
   if (!room) return { error: '房间不存在' };
   if (!isControllerConnection(room, socketId)) return { error: '仅房主或管理员可切歌' };
 
+  const user = room.users.get(socketId);
+  const songTitle = room.current ? formatSongTitle(room.current) : '';
   await playNext(room, { allowFetchRandom: false });
+  const systemMessage = songTitle
+    ? appendSystemChatMessage(room, `${formatActorName(user)} 切了 ${songTitle}`)
+    : null;
   persistRoom(room);
-  return { room: serializeRoom(room) };
+  return { room: serializeRoom(room), systemMessage };
 }
 
 export async function finishCurrentSong(roomId, socketId, connectionId, queueId) {
@@ -2000,8 +2236,12 @@ export async function requestJump(roomId, socketId, queueId) {
   if (!jumped) return { error: '歌曲不在队列中' };
 
   room.jumpRequests = room.jumpRequests.filter((r) => r.queueId !== queueId);
+  const systemMessage = appendSystemChatMessage(
+    room,
+    `${formatActorName(user)} 将 ${formatSongTitle(item)} 插到下一首`,
+  );
   persistRoom(room);
-  return { room: serializeRoom(room) };
+  return { room: serializeRoom(room), systemMessage };
 }
 
 export async function approveJump(roomId, socketId, requestId, connectionId = null) {
@@ -2401,6 +2641,7 @@ function serializeQueueItemForRoom(item) {
     requestedById: item.requestedById,
     addedAt: item.addedAt,
     likedByIds: Array.isArray(item.likedByIds) ? item.likedByIds : [],
+    dislikedByIds: Array.isArray(item.dislikedByIds) ? item.dislikedByIds : [],
     ownerPriority: item.ownerPriority || 0,
     priorityBy: item.priorityBy || '',
   };
@@ -2566,6 +2807,11 @@ function serializeRoom(room, options = {}) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
+    dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
+    dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
+    clearSongsOnLeaveEnabled: Boolean(room.clearSongsOnLeaveEnabled),
+    clearSongsOnLeaveDelaySec: normalizeClearSongsOnLeaveDelaySec(room.clearSongsOnLeaveDelaySec),
     bannedSongs: viewerCanModerate ? serializeBannedSongs(room.bannedSongs) : undefined,
     memberTiers: serializeMemberTiersMap(room.memberTiers),
     memberSettings: serializeMemberSettings(room.memberSettings),
@@ -2609,6 +2855,11 @@ export function prepareRoomBroadcast(roomId) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
+    dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
+    dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
+    clearSongsOnLeaveEnabled: Boolean(room.clearSongsOnLeaveEnabled),
+    clearSongsOnLeaveDelaySec: normalizeClearSongsOnLeaveDelaySec(room.clearSongsOnLeaveDelaySec),
     memberTiers: serializeMemberTiersMap(room.memberTiers),
     memberSettings: serializeMemberSettings(room.memberSettings),
   };

@@ -59,6 +59,7 @@ import {
   buildPlaybackState,
   requestJump,
   toggleQueueLike,
+  toggleCurrentDislike,
   approveJump,
   rejectJump,
   requestSkip,
@@ -78,6 +79,7 @@ import {
   updateUserLocation,
   reportTrackDuration,
   setOnRoomPrefetchReady,
+  setOnRoomStructureChanged,
   serializeRoomForViewer,
   prepareRoomBroadcast,
   roomUpdateForViewer,
@@ -984,7 +986,15 @@ app.get('/sitemap.xml', (req, res) => {
   res.type('application/xml').send(buildSitemapXml(origin));
 });
 
-app.use(express.static(clientDist));
+app.use(express.static(clientDist, {
+  setHeaders(res, filePath) {
+    const rel = path.relative(clientDist, filePath).replace(/\\/g, '/');
+    if (rel === 'index.html' || rel.startsWith('assets/')) {
+      // 稳定文件名 + 禁止长期缓存：发版覆盖源站后，CDN/浏览器会重新拉取
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  },
+}));
 app.get('*', (req, res, next) => {
   if (
     req.path.startsWith('/api')
@@ -995,6 +1005,7 @@ app.get('*', (req, res, next) => {
   ) {
     return next();
   }
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.join(clientDist, 'index.html'), (err) => {
     if (err) next();
   });
@@ -1039,6 +1050,11 @@ function rejectRateLimited(socket, limiter, kind, callback) {
 
 function getViewerRoomPayload(socket, roomId) {
   return serializeRoomForViewer(roomId, getSocketUserId(socket));
+}
+
+function emitSystemChat(roomId, message) {
+  if (!roomId || !message) return;
+  io.to(roomId).emit('chat_message', message);
 }
 
 /** 合并同房短时间内的多次 room_update，减轻人多时 O(N) 风暴 */
@@ -1149,6 +1165,11 @@ function broadcastPlaybackState(roomId) {
 
 setOnRoomPrefetchReady((roomId) => {
   broadcastRoomUpdate(roomId);
+});
+
+setOnRoomStructureChanged((roomId) => {
+  broadcastRoomUpdate(roomId, { immediate: true });
+  broadcastPlaybackState(roomId);
 });
 
 function emitRoomAndPlayback(roomId, room) {
@@ -1430,7 +1451,7 @@ io.on('connection', (socket) => {
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
-  socket.on('set_room_song_request', ({ enabled, minStaySec, maxPerUser, cooldownSec, queueMaxLength, memberJumpEnabled }, callback) => {
+  socket.on('set_room_song_request', ({ enabled, minStaySec, maxPerUser, cooldownSec, queueMaxLength, memberJumpEnabled, dislikeSkipMode, dislikeSkipThreshold, dislikeSkipPercent, clearSongsOnLeaveEnabled, clearSongsOnLeaveDelaySec }, callback) => {
     if (rejectReadOnly(socket, callback)) return;
     if (rejectRateLimited(socket, limitSocketAction, 'set_room_song_request', callback)) return;
 
@@ -1447,6 +1468,11 @@ io.on('connection', (socket) => {
       cooldownSec,
       queueMaxLength,
       memberJumpEnabled,
+      dislikeSkipMode,
+      dislikeSkipThreshold,
+      dislikeSkipPercent,
+      clearSongsOnLeaveEnabled,
+      clearSongsOnLeaveDelaySec,
     }, socket.id);
     if (result.error) {
       callback?.({ success: false, error: result.error });
@@ -1724,6 +1750,7 @@ io.on('connection', (socket) => {
 
     emitRoomAndPlayback(roomId, result.room);
     recordSongRequest(clean.song);
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
@@ -1744,6 +1771,7 @@ io.on('connection', (socket) => {
     }
 
     broadcastRoomUpdate(roomId);
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
@@ -1784,6 +1812,7 @@ io.on('connection', (socket) => {
     }
 
     emitRoomAndPlayback(roomId, result.room);
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
@@ -1831,6 +1860,7 @@ io.on('connection', (socket) => {
     }
 
     broadcastRoomUpdate(roomId);
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
@@ -1855,7 +1885,43 @@ io.on('connection', (socket) => {
       queue: result.queue || [],
       current: result.current || null,
     });
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, liked: result.liked });
+  });
+
+  socket.on('toggle_current_dislike', async (_payload, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'toggle_current_dislike', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = await toggleCurrentDislike(roomId, getSocketUserId(socket));
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    if (result.skipped) {
+      emitRoomAndPlayback(roomId, result.room);
+    } else {
+      io.to(roomId).emit('queue_snapshot', {
+        queue: result.room?.queue || [],
+        current: result.room?.current || null,
+      });
+    }
+    emitSystemChat(roomId, result.systemMessage);
+    callback?.({
+      success: true,
+      disliked: result.disliked,
+      skipped: result.skipped,
+      dislikeCount: result.dislikeCount,
+      threshold: result.threshold,
+      room: getViewerRoomPayload(socket, roomId),
+    });
   });
 
   socket.on('approve_jump', async ({ requestId }, callback) => {

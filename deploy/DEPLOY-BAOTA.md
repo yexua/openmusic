@@ -141,3 +141,6 @@ cd /www/wwwroot/openmusic/server
 npm install --production
 pm2 restart openmusic
 ```
+
+前端静态资源已改为**固定文件名**（如 `assets/Room.js`），源站对 `index.html` 与 `/assets/*` 返回 `Cache-Control: no-cache`。  
+若挂了 EO / CDN 缓存，建议在控制台将 **HTML 与 `/assets/*` 设为跟随源站** 或 **不缓存**，发版后无需每次手动清缓存。

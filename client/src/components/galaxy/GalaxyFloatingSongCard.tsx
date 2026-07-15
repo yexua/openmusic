@@ -149,13 +149,15 @@ export default function GalaxyFloatingSongCard() {
         { id: 'favorite', label: favorite ? '已收藏' : '收藏', active: favorite, tone: 'rose' },
       ];
       if (!song.isCurrent) {
-        actions.push({
-          id: 'like',
-          label: likedByMe ? '已点赞' : '点赞',
-          active: likedByMe,
-          tone: 'sky',
-          badge: likedByIds.length > 0 ? String(likedByIds.length) : undefined,
-        });
+        if (!isMine) {
+          actions.push({
+            id: 'like',
+            label: likedByMe ? '已点赞' : '点赞',
+            active: likedByMe,
+            tone: 'sky',
+            badge: likedByIds.length > 0 ? String(likedByIds.length) : undefined,
+          });
+        }
         if (canControlPlayback || (isMine && memberJumpEnabled)) {
           actions.push({ id: 'jump', label: '插队', tone: 'amber' });
         }

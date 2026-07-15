@@ -741,6 +741,35 @@ if (s.connected) {
 
   }, []);
 
+  const toggleCurrentDislike = useCallback((): Promise<{
+    success: boolean;
+    disliked?: boolean;
+    skipped?: boolean;
+    dislikeCount?: number;
+    threshold?: number;
+    error?: string;
+    room?: RoomState;
+  }> => {
+    return emitWithAck<{
+      success: boolean;
+      disliked?: boolean;
+      skipped?: boolean;
+      dislikeCount?: number;
+      threshold?: number;
+      error?: string;
+      room?: RoomState;
+    }>(
+      'toggle_current_dislike',
+      {},
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        applyRoomSnapshot(res.room);
+      }
+      return res;
+    });
+  }, []);
+
 
 
   const approveJump = useCallback((requestId: string): Promise<boolean> => {
@@ -941,6 +970,11 @@ if (s.connected) {
   const setSongRequestEnabled = useCallback((options: {
     enabled?: boolean;
     memberJumpEnabled?: boolean;
+    dislikeSkipMode?: 'count' | 'percent';
+    dislikeSkipThreshold?: number;
+    dislikeSkipPercent?: number;
+    clearSongsOnLeaveEnabled?: boolean;
+    clearSongsOnLeaveDelaySec?: number;
     minStaySec?: number;
     maxPerUser?: number;
     cooldownSec?: number;
@@ -1123,6 +1157,7 @@ if (s.connected) {
 
     requestJump,
     toggleQueueLike,
+    toggleCurrentDislike,
 
     approveJump,
 

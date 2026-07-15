@@ -40,6 +40,8 @@ export interface QueueItem extends Song {
   requestedById?: string;
   addedAt: number;
   likedByIds?: string[];
+  /** 当前曲被踩的人（仅对正在播放有效，切歌后清空） */
+  dislikedByIds?: string[];
   ownerPriority?: number;
   /** 管理员插队置顶的操作者昵称 */
   priorityBy?: string;
@@ -175,6 +177,16 @@ export interface RoomState {
   songRequestEnabled?: boolean;
   /** 是否允许成员为自己的点歌插队（默认关闭，房主/管理员始终可插队） */
   memberJumpEnabled?: boolean;
+  /** 踩歌切歌模式：固定人数或在线比例 */
+  dislikeSkipMode?: 'count' | 'percent';
+  /** 踩歌切歌固定人数（count 模式），默认 5 */
+  dislikeSkipThreshold?: number;
+  /** 踩歌切歌在线比例（percent 模式），1–100，默认 50 */
+  dislikeSkipPercent?: number;
+  /** 退出房间后是否清除该成员已点待播曲（默认关闭） */
+  clearSongsOnLeaveEnabled?: boolean;
+  /** 退出后等待多久再清除，秒，默认 60 */
+  clearSongsOnLeaveDelaySec?: number;
   /** 进房后需等待的秒数才能点歌，0 表示不限制 */
   songRequestMinStaySec?: number;
   /** 每人队列中最多保留几首，0 表示不限制 */

@@ -45,7 +45,8 @@ function queueItemEqual(a: QueueItem, b: QueueItem): boolean {
     && a.requestedById === b.requestedById
     && a.ownerPriority === b.ownerPriority
     && a.priorityBy === b.priorityBy
-    && stringArraysEqual(a.likedByIds, b.likedByIds);
+    && stringArraysEqual(a.likedByIds, b.likedByIds)
+    && stringArraysEqual(a.dislikedByIds, b.dislikedByIds);
 }
 
 export function roomQueueEqual(a: QueueItem[], b: QueueItem[]): boolean {
@@ -175,6 +176,11 @@ export function isRoomStateEquivalent(a: RoomState, b: RoomState): boolean {
     && a.announcementText === b.announcementText
     && a.songRequestEnabled === b.songRequestEnabled
     && a.memberJumpEnabled === b.memberJumpEnabled
+    && a.dislikeSkipMode === b.dislikeSkipMode
+    && a.dislikeSkipThreshold === b.dislikeSkipThreshold
+    && a.dislikeSkipPercent === b.dislikeSkipPercent
+    && a.clearSongsOnLeaveEnabled === b.clearSongsOnLeaveEnabled
+    && a.clearSongsOnLeaveDelaySec === b.clearSongsOnLeaveDelaySec
     && a.songRequestMinStaySec === b.songRequestMinStaySec
     && a.songRequestMaxPerUser === b.songRequestMaxPerUser
     && a.songRequestCooldownSec === b.songRequestCooldownSec

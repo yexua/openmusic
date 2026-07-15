@@ -80,6 +80,9 @@ type VirtualRowData = {
 
 function estimateMessageHeight(msg: ChatMessage): number {
   if (msg.kind === 'welcome') return 120;
+  if (msg.kind === 'system') {
+    return Math.min(72, Math.max(28, Math.ceil((msg.text?.length || 12) / 28) * 20)) + ROW_GAP_PX;
+  }
   // 头像行 + 昵称行余量（宁可偏高出现空隙，也不要偏低导致重叠）
   let height = 56;
   if (msg.replyTo) height += 44;
@@ -446,7 +449,7 @@ const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function ChatMe
 
     if (grew) {
       const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.kind === 'welcome') {
+      if (lastMessage?.kind === 'welcome' || lastMessage?.kind === 'system') {
         return pinToBottomWhileSticky();
       }
       scrollToBottomEnd('instant');

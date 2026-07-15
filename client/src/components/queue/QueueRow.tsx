@@ -54,6 +54,7 @@ function QueueRow({
   const likedByIds = Array.isArray(song.likedByIds) ? song.likedByIds : [];
   const likeCount = likedByIds.length;
   const likedByMe = Boolean(myUserId && likedByIds.includes(myUserId));
+  const canLike = !isMine;
   const canJump = !song.isCurrent && (canControlPlayback || (isMine && memberJumpEnabled));
   const canRemove = !song.isCurrent && (canControlPlayback || isMine);
   const hasSourceError = useTrackSourceError(song);
@@ -111,21 +112,29 @@ function QueueRow({
           />
           {!song.isCurrent && (
             <div className="flex flex-shrink-0 items-center gap-0.5">
-              <Tooltip content={likedByMe ? '取消点赞' : '点赞提高排序'}>
-                <button
-                  type="button"
-                  onClick={() => onLike(song.queueId)}
-                  className={`flex min-w-7 items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] transition-colors ${
-                    likedByMe
-                      ? 'bg-netease-red/10 text-netease-red'
-                      : 'text-netease-muted hover:bg-white/10 hover:text-white'
-                  }`}
-                  aria-label={likedByMe ? '取消点赞' : '点赞'}
-                >
+              {canLike && (
+                <Tooltip content={likedByMe ? '取消点赞' : '点赞提高排序'}>
+                  <button
+                    type="button"
+                    onClick={() => onLike(song.queueId)}
+                    className={`flex min-w-7 items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] transition-colors ${
+                      likedByMe
+                        ? 'bg-netease-red/10 text-netease-red'
+                        : 'text-netease-muted hover:bg-white/10 hover:text-white'
+                    }`}
+                    aria-label={likedByMe ? '取消点赞' : '点赞'}
+                  >
+                    <ThumbsUp className="h-3.5 w-3.5" />
+                    {likeCount > 0 && <span>{likeCount}</span>}
+                  </button>
+                </Tooltip>
+              )}
+              {!canLike && likeCount > 0 && (
+                <span className="flex min-w-7 items-center justify-center gap-0.5 px-1 py-1 text-[11px] text-netease-muted/70">
                   <ThumbsUp className="h-3.5 w-3.5" />
-                  {likeCount > 0 && <span>{likeCount}</span>}
-                </button>
-              </Tooltip>
+                  <span>{likeCount}</span>
+                </span>
+              )}
               {canJump && (
                 <Tooltip content={canControlPlayback ? '管理员插队，优先于点赞排序' : '插队到下一首'}>
                   <button
