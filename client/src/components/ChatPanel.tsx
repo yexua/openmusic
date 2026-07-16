@@ -14,6 +14,7 @@ import ChatImageLightbox from './ChatImageLightbox';
 import ChatMessageList, { type ChatMessageListHandle } from './ChatMessageList';
 import ChatInputBar, { type ChatInputBarHandle, type PendingChatImage } from './ChatInputBar';
 import ChatMutePicker from './ChatMutePicker';
+import ChatSystemToast from './ChatSystemToast';
 import { compactReplyText } from '../lib/chatPanelUtils';
 import { useChatRoomMeta, useChatRoomSlice } from '../lib/chatRoomSlice';
 import { fetchChatUploadEnabled } from '../api/chatImage';
@@ -203,7 +204,9 @@ export default function ChatPanel({ className = '' }: { className?: string }) {
         <p className="flex-shrink-0 px-3 py-1 text-xs text-netease-red">{muteError}</p>
       )}
 
-      <ChatMessageList
+      <div className="relative min-h-0 flex-1">
+        <ChatSystemToast />
+        <ChatMessageList
         ref={messageListRef}
         roomMeta={roomMeta}
         myUserId={myUserId}
@@ -220,7 +223,8 @@ export default function ChatPanel({ className = '' }: { className?: string }) {
         onPreviewImage={setPreviewImageUrl}
         loadChatHistory={loadChatHistory}
         onScrollRootChange={setChatScrollRoot}
-      />
+        />
+      </div>
 
       <div ref={chatOverlayHostRef} className="pointer-events-none absolute inset-0 z-30" />
 

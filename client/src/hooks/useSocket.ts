@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 
 import { useRoomStore } from '../stores/roomStore';
 import { useChatStore } from '../stores/chatStore';
+import { useChatSystemToastStore } from '../stores/chatSystemToastStore';
 import { useSongHistoryStore } from '../stores/songHistoryStore';
 import { useAudioStore } from '../stores/audioStore';
 import { songKey } from '../api/music';
@@ -236,6 +237,7 @@ function applyJoinSnapshot(room: RoomState, playbackState?: PlaybackState) {
 }
 
 function applyJoinChat(room: RoomState, messages?: ChatMessage[], chatHasMore?: boolean) {
+  useChatSystemToastStore.getState().clear();
   useChatStore.getState().reset(
     room.id,
     messages || [],
@@ -494,6 +496,10 @@ let prefetchDebounceTimer = 0;
     };
 
     const onChatMessage = (message: ChatMessage) => {
+      if (message.kind === 'system') {
+        useChatSystemToastStore.getState().show(message.text);
+        return;
+      }
       useChatStore.getState().append(message);
     };
 
@@ -515,6 +521,7 @@ let prefetchDebounceTimer = 0;
       clearReconnectSchedule();
       reconnectAttempt = 0;
       useChatStore.getState().clear();
+      useChatSystemToastStore.getState().clear();
       useSongHistoryStore.getState().clear();
       stopSharedAudio();
       resetSyncStateMachine();
@@ -661,6 +668,7 @@ if (!connected.current && !socketConnectRequested) {
     reconnectAttempt = 0;
     useRoomStore.getState().setReconnecting(false);
     useChatStore.getState().clear();
+    useChatSystemToastStore.getState().clear();
     useSongHistoryStore.getState().clear();
     stopSharedAudio();
     resetSyncStateMachine();

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { compression } from 'vite-plugin-compression2';
 import { buildRobotsTxt, buildSitemapXml, resolveDevSiteOrigin } from '../server/seoFiles.js';
 
 function seoDevMiddleware() {
@@ -24,18 +25,47 @@ function seoDevMiddleware() {
 }
 
 export default defineConfig({
-  plugins: [react(), seoDevMiddleware()],
+  plugins: [
+    react(),
+    seoDevMiddleware(),
+    compression({
+      threshold: 1024,
+      algorithms: ['gzip', 'brotliCompress'],
+      skipIfLargerOrEqual: true,
+    }),
+  ],
   build: {
-    chunkSizeWarningLimit: 900,
+    target: 'es2020',
+    minify: 'esbuild',
+    cssMinify: true,
+    chunkSizeWarningLimit: 600,
+    modulePreload: {
+      polyfill: false,
+    },
     rollupOptions: {
       output: {
-        // 固定资源名，部署覆盖同路径即可；配合服务端 no-cache，避免 EO 缓存 hash 文件名导致每次清缓存
         entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name][extname]',
         manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('three') || id.includes('@react-three')) {
+          if (!id.includes('node_modules')) {
+            // 聊天相关拆出，避免塞进 Room 主包
+            if (
+              id.includes('/components/Chat')
+              || id.includes('/components/Sticker')
+              || id.includes('/components/UserSticker')
+              || id.includes('/lib/chat')
+              || id.includes('/lib/qface')
+              || id.includes('/stores/chat')
+            ) {
+              return 'chat-ui';
+            }
+            if (id.includes('/components/queue/') || id.includes('/components/QueuePanel')) {
+              return 'queue-ui';
+            }
+            return;
+          }
+          if (id.includes('three') || id.includes('@react-three') || id.includes('@mediapipe')) {
             return;
           }
           if (id.includes('socket.io-client')) {
@@ -43,6 +73,12 @@ export default defineConfig({
           }
           if (id.includes('lucide-react')) {
             return 'icons-vendor';
+          }
+          if (id.includes('zustand')) {
+            return 'zustand-vendor';
+          }
+          if (id.includes('react-window')) {
+            return 'window-vendor';
           }
           if (
             id.includes('react-dom')
@@ -54,6 +90,10 @@ export default defineConfig({
         },
       },
     },
+  },
+  esbuild: {
+    drop: ['debugger'],
+    legalComments: 'none',
   },
   server: {
     port: 5173,

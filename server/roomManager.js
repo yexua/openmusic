@@ -1237,7 +1237,7 @@ function formatActorName(user) {
   return String(user?.nickname || '匿名').trim().slice(0, 20) || '匿名';
 }
 
-/** 聊天室居中系统提示（点歌/点赞等） */
+/** 聊天室顶部短暂系统提示（点歌/点赞等，不落盘、不进消息列表） */
 function appendSystemChatMessage(room, text) {
   if (!room) return null;
   const content = String(text || '').trim().slice(0, 200);
@@ -1254,11 +1254,6 @@ function appendSystemChatMessage(room, text) {
     timestamp: Date.now(),
   };
 
-  room.messages.push(message);
-  if (room.messages.length > MAX_CHAT_MESSAGES) {
-    room.messages.splice(0, room.messages.length - MAX_CHAT_MESSAGES);
-  }
-  // 随下一次 persist 落盘；调用方通常紧接着 persistRoom
   return serializeChatMessage(message);
 }
 
@@ -1813,7 +1808,7 @@ export async function toggleCurrentDislike(roomId, userId) {
     skipped = true;
     systemMessage = appendSystemChatMessage(
       room,
-      `${formatActorName(user)} 踩歌达到人数，已切掉 ${songTitle}`,
+      `踩歌达到人数，已切掉 ${songTitle}`,
     );
   }
 

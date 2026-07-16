@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, ChevronLeft, Clock, Trash2 } from 'lucide-react';
 import type { PlaylistPlatform } from '../api/music/playlist';
+import {
+  readPlaylistImportHistory,
+  removePlaylistImportHistoryItem,
+  type PlaylistImportHistoryItem,
+} from '../lib/playlistImportHistory';
 import Tooltip from './Tooltip';
 import {
   immersiveGlassScrim,
@@ -8,6 +13,8 @@ import {
   immersiveGlassInset,
   immersiveGlassInput,
 } from '../lib/immersiveGlass';
+
+export { rememberPlaylistImportHistory } from '../lib/playlistImportHistory';
 
 const HINTS: Record<PlaylistPlatform, string> = {
   netease: '粘贴歌单分享文案或链接到下方。',
@@ -24,16 +31,7 @@ const TITLES: Record<PlaylistPlatform, string> = {
   qq: '导入绿点歌单',
 };
 
-const HISTORY_KEY = 'openmusic:playlist-import-history';
-const MAX_HISTORY = 10;
-
-type HistoryItem = {
-  id: string;
-  platform: PlaylistPlatform;
-  playlistId: string;
-  name: string;
-  updatedAt: number;
-};
+type HistoryItem = PlaylistImportHistoryItem;
 
 interface Props {
   open: boolean;
@@ -42,58 +40,6 @@ interface Props {
   immersive?: boolean;
   onClose: () => void;
   onImport: (platform: PlaylistPlatform, input: string) => void;
-}
-
-function normalizeHistoryItem(item: unknown): HistoryItem | null {
-  if (!item || typeof item !== 'object') return null;
-  const raw = item as Partial<HistoryItem> & { input?: string; title?: string };
-  if (raw.platform !== 'netease' && raw.platform !== 'qq') return null;
-  const playlistId = String(raw.playlistId || '').trim();
-  const name = String(raw.name || '').trim();
-  if (!playlistId || !name) return null;
-  return {
-    id: `${raw.platform}:${playlistId}`,
-    platform: raw.platform,
-    playlistId,
-    name,
-    updatedAt: Number(raw.updatedAt) || Date.now(),
-  };
-}
-
-function readHistory(): HistoryItem[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    const items = raw ? JSON.parse(raw) : [];
-    return Array.isArray(items) ? items.map(normalizeHistoryItem).filter(Boolean).slice(0, MAX_HISTORY) as HistoryItem[] : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeHistory(items: HistoryItem[]): void {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, MAX_HISTORY)));
-  } catch {
-    // localStorage may be unavailable.
-  }
-}
-
-export function rememberPlaylistImportHistory(item: {
-  platform: PlaylistPlatform;
-  playlistId: string;
-  name: string;
-}): HistoryItem[] {
-  const playlistId = item.playlistId.trim();
-  const name = item.name.trim() || '未命名歌单';
-  if (!playlistId) return readHistory();
-
-  const id = `${item.platform}:${playlistId}`;
-  const next = [
-    { id, platform: item.platform, playlistId, name, updatedAt: Date.now() },
-    ...readHistory().filter((historyItem) => historyItem.id !== id),
-  ];
-  writeHistory(next);
-  return next.slice(0, MAX_HISTORY);
 }
 
 export default function PlaylistImportModal({
@@ -106,10 +52,10 @@ export default function PlaylistImportModal({
 }: Props) {
   const [platform, setPlatform] = useState<PlaylistPlatform | null>(null);
   const [input, setInput] = useState('');
-  const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
+  const [history, setHistory] = useState<HistoryItem[]>(() => readPlaylistImportHistory());
 
   useEffect(() => {
-    if (open) setHistory(readHistory());
+    if (open) setHistory(readPlaylistImportHistory());
     if (!open) {
       setPlatform(null);
       setInput('');
@@ -149,9 +95,7 @@ export default function PlaylistImportModal({
   };
 
   const removeHistory = (id: string) => {
-    const next = history.filter((item) => item.id !== id);
-    setHistory(next);
-    writeHistory(next);
+    setHistory(removePlaylistImportHistoryItem(id));
   };
 
   if (!platform) {

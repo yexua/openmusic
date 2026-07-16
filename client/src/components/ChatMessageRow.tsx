@@ -138,12 +138,6 @@ function ChatMessageRow({
     );
   }
 
-  if (msg.kind === 'system') {
-    return (
-      <SystemChatRow msg={msg} onContentResize={onContentResize} />
-    );
-  }
-
   const isMe = msg.userId === myUserId;
   const isRoomCreator = msg.userId === room.creatorId;
   const isRoomAdmin = room.adminIds.includes(msg.userId);
@@ -329,34 +323,6 @@ function ChatMessageRow({
           </Tooltip>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SystemChatRow({
-  msg,
-  onContentResize,
-}: {
-  msg: ChatMessage;
-  onContentResize?: () => void;
-}) {
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (!onContentResize) return;
-    const el = rowRef.current;
-    if (!el) return;
-    onContentResize();
-    const ro = new ResizeObserver(() => onContentResize());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [msg.id, msg.text, onContentResize]);
-
-  return (
-    <div ref={rowRef} className="flex justify-center px-2 py-0.5">
-      <p className="max-w-[92%] break-words text-center text-[11px] leading-5 text-netease-muted/85 [overflow-wrap:anywhere]">
-        {msg.text}
-      </p>
     </div>
   );
 }

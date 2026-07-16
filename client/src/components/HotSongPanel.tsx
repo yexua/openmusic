@@ -68,7 +68,7 @@ function ToplistRow({
         className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-all hover:bg-netease-red/15 hover:text-netease-red disabled:opacity-50 ${
           isAdding
             ? 'text-netease-red opacity-100'
-            : 'text-netease-muted opacity-0 group-hover:opacity-100'
+            : 'text-netease-muted opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
         }`}
         aria-label="点歌"
       >
@@ -183,19 +183,21 @@ export default memo(function HotSongPanel({
           ) : songs.length === 0 ? (
             <p className="py-3 text-center text-xs text-netease-muted">暂无热榜歌曲</p>
           ) : (
-            <div className="flex min-w-min gap-2.5 overflow-x-auto pb-0.5">
-              {displaySongs.map((song, i) => {
-                const key = songKey(song);
-                return (
-                  <CompactToplistCard
-                    key={key}
-                    song={song}
-                    rank={i + 1}
-                    isAdding={addingId === key}
-                    onAdd={() => onAdd(song)}
-                  />
-                );
-              })}
+            <div className="overflow-x-auto overscroll-x-contain touch-pan-x pb-0.5 [-webkit-overflow-scrolling:touch]">
+              <div className="flex w-max gap-2.5">
+                {displaySongs.map((song, i) => {
+                  const key = songKey(song);
+                  return (
+                    <CompactToplistCard
+                      key={key}
+                      song={song}
+                      rank={i + 1}
+                      isAdding={addingId === key}
+                      onAdd={() => onAdd(song)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

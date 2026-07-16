@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { searchAllSongs, getAvailableSources, type SearchFilterMode } from '../a
 import { importPlaylist, searchPlaylists, type PlaylistSearchItem, type PlaylistPlatform, type PlaylistChannelFilter as PlaylistChannelFilterMode } from '../api/music/playlist';
 import { normalizeFmMode } from '../api/music/fmMode';
 import { addSongsToQueue, formatBulkAddToast } from '../lib/addSongsToQueue';
-import { rememberPlaylistImportHistory } from '../components/PlaylistImportModal';
+import { rememberPlaylistImportHistory } from '../lib/playlistImportHistory';
 
 import type { FavoriteSong, MusicSource, RoomAudioQuality, RoomMemberSettings, RoomMemberTier, SearchResult, Song, SongHistoryItem } from '../types';
 
@@ -32,21 +32,8 @@ import { normalizeDislikeSkipMode } from '../lib/dislikeSkip';
 import { songKey, getCoverUrl } from '../api/music';
 import SongCover from '../components/SongCover';
 
-import QueuePanel from '../components/QueuePanel';
-
-import MiniPlayer from '../components/MiniPlayer';
-import ImmersiveExitModal from '../components/immersive/ImmersiveExitModal';
-import ImmersiveTransitionOverlay from '../components/immersive/ImmersiveTransitionOverlay';
-
-import RoomAmbientBackground from '../components/RoomAmbientBackground';
-
-import PlayerPage from '../components/PlayerPage';
-
-import OnlineUsers from '../components/OnlineUsers';
-
 import AudioEngine from '../components/AudioEngine';
 
-import SongResultList from '../components/SongResultList';
 import SourceBadge from '../components/SourceBadge';
 import SearchFilterSelect from '../components/SearchFilterSelect';
 import PlaylistChannelFilter from '../components/PlaylistChannelFilter';
@@ -58,22 +45,13 @@ import {
   SONG_RESULT_PAGE_SIZE_OPTIONS,
   type SongResultPageSize,
 } from '../lib/songResultPagination';
-import PlaylistImportModal from '../components/PlaylistImportModal';
-import ChatPanel from '../components/ChatPanel';
-import PureModeChatDock from '../components/PureModeChatDock';
-import HotSongPanel from '../components/HotSongPanel';
-import RecommendedPlaylistsDrawer from '../components/RecommendedPlaylistsDrawer';
-import ClientDownloadModal from '../components/ClientDownloadModal';
 import FavoriteButton from '../components/FavoriteButton';
 import PageSizeSelect from '../components/PageSizeSelect';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSongHistoryStore } from '../stores/songHistoryStore';
 
 import RoomFmModeBadge from '../components/RoomFmModeBadge';
-import RoomAnnouncementPopup from '../components/RoomAnnouncementPopup';
-import RoomMemberModal from '../components/RoomMemberModal';
-import RoomSettingsModal, { type SongRequestSettings } from '../components/RoomSettingsModal';
-import RoomQualityModal from '../components/RoomQualityModal';
+import type { SongRequestSettings } from '../components/RoomSettingsModal';
 import RoomQualityBadge from '../components/RoomQualityBadge';
 import { resolveEffectiveAudioQuality, useUserQualityStore } from '../stores/userQualityStore';
 import { invalidateUnloadedSongUrlCache, prefetchUpcomingFromRoom } from '../lib/songPreloadCache';
@@ -95,9 +73,6 @@ import {
   clearStoredRoomPassword,
   stripRoomPasswordFromSearch,
 } from '../lib/roomPassword';
-import RoomVisualFxPanel from '../components/RoomVisualFxPanel';
-import RoomImmersiveShell from '../components/immersive/RoomImmersiveShell';
-import ImmersiveFxSettingsPanel from '../components/immersive/ImmersiveFxSettingsPanel';
 import { isMobileDevice } from '../lib/audioUnlock';
 import {
   readRoomVisualFx,
@@ -117,13 +92,39 @@ import {
   immersiveGlassSheetHeader,
   immersiveGlassListFooter,
 } from '../lib/immersiveGlass';
+
+const PlayerPage = lazy(() => import('../components/PlayerPage'));
+const PlaylistImportModal = lazy(() => import('../components/PlaylistImportModal'));
+const RecommendedPlaylistsDrawer = lazy(() => import('../components/RecommendedPlaylistsDrawer'));
+const ClientDownloadModal = lazy(() => import('../components/ClientDownloadModal'));
+const RoomMemberModal = lazy(() => import('../components/RoomMemberModal'));
+const RoomSettingsModal = lazy(() => import('../components/RoomSettingsModal'));
+const RoomVisualFxPanel = lazy(() => import('../components/RoomVisualFxPanel'));
+const RoomImmersiveShell = lazy(() => import('../components/immersive/RoomImmersiveShell'));
+const ImmersiveFxSettingsPanel = lazy(() => import('../components/immersive/ImmersiveFxSettingsPanel'));
+const ImmersiveExitModal = lazy(() => import('../components/immersive/ImmersiveExitModal'));
+const ImmersiveTransitionOverlay = lazy(() => import('../components/immersive/ImmersiveTransitionOverlay'));
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+const PureModeChatDock = lazy(() => import('../components/PureModeChatDock'));
+const QueuePanel = lazy(() => import('../components/QueuePanel'));
+const HotSongPanel = lazy(() => import('../components/HotSongPanel'));
+const SongResultList = lazy(() => import('../components/SongResultList'));
+const OnlineUsers = lazy(() => import('../components/OnlineUsers'));
+const RoomAmbientBackground = lazy(() => import('../components/RoomAmbientBackground'));
+const MiniPlayer = lazy(() => import('../components/MiniPlayer'));
+const RoomQualityModal = lazy(() => import('../components/RoomQualityModal'));
+const RoomAnnouncementPopup = lazy(() => import('../components/RoomAnnouncementPopup'));
+
+function ensureGalaxyAudioOutputLazy() {
+  void import('../components/galaxy/lib/galaxyAudio').then((m) => m.ensureGalaxyAudioOutput());
+}
+
 import {
   commitRoomVisualFx,
   patchRoomVisualFx,
   roomVisualFxLive,
 } from '../lib/roomVisualFxLive';
 import { resetSharedAudioElement } from '../lib/audioElement';
-import { ensureGalaxyAudioOutput } from '../components/galaxy/lib/galaxyAudio';
 import { useAudioStore } from '../stores/audioStore';
 import {
   createEnterSteps,
@@ -1258,7 +1259,7 @@ export default function Room() {
 
       setImmersiveTransition((prev) => (prev ? { ...prev, phase: 'reveal' } : prev));
       setImmersiveShellMotion('exiting');
-      ensureGalaxyAudioOutput();
+      ensureGalaxyAudioOutputLazy();
 
       await new Promise((resolve) => window.setTimeout(resolve, IMMERSIVE_REVEAL_OUT_MS));
 
@@ -1334,7 +1335,7 @@ export default function Room() {
         setImmersiveShellMotion('entering');
         setImmersiveModeEnabled(true);
         setVisualFxOpen(false);
-        ensureGalaxyAudioOutput();
+        ensureGalaxyAudioOutputLazy();
 
         await new Promise((resolve) => window.setTimeout(resolve, IMMERSIVE_REVEAL_IN_MS));
         showToast('已进入沉浸模式', 'success');
@@ -1877,16 +1878,18 @@ export default function Room() {
 
 
   return (
-
+    <Suspense fallback={null}>
     <div
       className="relative isolate flex h-full flex-col overflow-hidden"
       style={immersiveTransition || immersiveShellMotion ? immersiveTimingCssVars() : undefined}
     >
 
-      <ImmersiveTransitionOverlay
-        transition={immersiveTransition}
-        coverUrl={room.current ? getCoverUrl(room.current, 'medium') : null}
-      />
+      <Suspense fallback={null}>
+        <ImmersiveTransitionOverlay
+          transition={immersiveTransition}
+          coverUrl={room.current ? getCoverUrl(room.current, 'medium') : null}
+        />
+      </Suspense>
 
       <RoomAmbientBackground
         song={room.current}
@@ -1896,69 +1899,75 @@ export default function Room() {
       />
 
       {immersiveMode && (
-        <RoomImmersiveShell
-          className={
-            immersiveShellMotion === 'entering'
-              ? 'is-shell-entering'
-              : immersiveShellMotion === 'exiting'
-                ? 'is-shell-exiting'
-                : undefined
-          }
-          onExit={() => {
-            if (immersiveTransition) return;
-            setImmersiveExitPromptOpen(true);
-          }}
-          onPanelFocusChange={setImmersivePanelFocus}
-          searchBar={immersiveSearchBar}
-          searchExtras={immersiveSearchExtras}
-          showSearchResults={showDesktopSearchOverlay}
-          searchResults={
-            showDesktopSearchOverlay ? (
-              <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                {renderSearchResultsCore(true, true)}
-              </div>
-            ) : null
-          }
-          queueContent={<QueuePanel fillHeight />}
-          chatContent={<ChatPanel />}
-          settingsPanel={
-            <ImmersiveFxSettingsPanel
-              value={visualFx}
-              onPatch={patchVisualFx}
-              onReset={resetVisualFx}
-              visualMode={visualMode}
-              onVisualModeChange={handleVisualModeChange}
-              onDraggingChange={setVisualFxDragging}
-              coverUrl={room.current ? getCoverUrl(room.current, 'medium') : null}
-            />
-          }
-          player={
-            room.current || room.randomLoading ? (
-              <MiniPlayer variant="immersive" onExpand={() => setShowPlayer(true)} />
-            ) : (
-              <div className="mineradio-glass-bar px-4 py-3 text-center text-xs text-white/45">等待播放…</div>
-            )
-          }
-        />
+        <Suspense fallback={null}>
+          <RoomImmersiveShell
+            className={
+              immersiveShellMotion === 'entering'
+                ? 'is-shell-entering'
+                : immersiveShellMotion === 'exiting'
+                  ? 'is-shell-exiting'
+                  : undefined
+            }
+            onExit={() => {
+              if (immersiveTransition) return;
+              setImmersiveExitPromptOpen(true);
+            }}
+            onPanelFocusChange={setImmersivePanelFocus}
+            searchBar={immersiveSearchBar}
+            searchExtras={immersiveSearchExtras}
+            showSearchResults={showDesktopSearchOverlay}
+            searchResults={
+              showDesktopSearchOverlay ? (
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  {renderSearchResultsCore(true, true)}
+                </div>
+              ) : null
+            }
+            queueContent={<QueuePanel fillHeight />}
+            chatContent={<ChatPanel />}
+            settingsPanel={
+              <ImmersiveFxSettingsPanel
+                value={visualFx}
+                onPatch={patchVisualFx}
+                onReset={resetVisualFx}
+                visualMode={visualMode}
+                onVisualModeChange={handleVisualModeChange}
+                onDraggingChange={setVisualFxDragging}
+                coverUrl={room.current ? getCoverUrl(room.current, 'medium') : null}
+              />
+            }
+            player={
+              room.current || room.randomLoading ? (
+                <MiniPlayer variant="immersive" onExpand={() => setShowPlayer(true)} />
+              ) : (
+                <div className="mineradio-glass-bar px-4 py-3 text-center text-xs text-white/45">等待播放…</div>
+              )
+            }
+          />
+        </Suspense>
       )}
 
       {immersiveExitPromptOpen ? (
-        <ImmersiveExitModal
-          open={immersiveExitPromptOpen}
-          onKeepBackground={handleImmersiveExitKeepBackground}
-          onSwitchCoverBg={handleImmersiveExitToCover}
-          onCancel={() => setImmersiveExitPromptOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <ImmersiveExitModal
+            open={immersiveExitPromptOpen}
+            onKeepBackground={handleImmersiveExitKeepBackground}
+            onSwitchCoverBg={handleImmersiveExitToCover}
+            onCancel={() => setImmersiveExitPromptOpen(false)}
+          />
+        </Suspense>
       ) : null}
 
-      <RoomVisualFxPanel
-        open={visualFxOpen && !immersiveMode}
-        value={visualFx}
-        onPatch={patchVisualFx}
-        onReset={resetVisualFx}
-        onClose={() => setVisualFxOpen(false)}
-        onDraggingChange={setVisualFxDragging}
-      />
+      <Suspense fallback={null}>
+        <RoomVisualFxPanel
+          open={visualFxOpen && !immersiveMode}
+          value={visualFx}
+          onPatch={patchVisualFx}
+          onReset={resetVisualFx}
+          onClose={() => setVisualFxOpen(false)}
+          onDraggingChange={setVisualFxDragging}
+        />
+      </Suspense>
 
       <AudioEngine />
 
@@ -1970,6 +1979,7 @@ export default function Room() {
         />
       )}
 
+      <Suspense fallback={null}>
       <RoomSettingsModal
         open={settingsOpen}
         isOwner={isOwner}
@@ -1990,7 +2000,9 @@ export default function Room() {
         onSaveAnnouncement={handleSaveAnnouncement}
         onSaveSongRequest={handleSaveSongRequestSettings}
       />
+      </Suspense>
 
+      <Suspense fallback={null}>
       <RoomMemberModal
         open={memberOpen}
         users={room?.users ?? []}
@@ -2004,6 +2016,7 @@ export default function Room() {
         onSaveTier={handleAssignMemberTier}
         onRemoveTier={handleRemoveMemberTier}
       />
+      </Suspense>
 
       <RoomQualityModal
         open={qualityOpen}
@@ -2429,14 +2442,16 @@ export default function Room() {
 
       {playlistImportOpen &&
         createPortal(
-          <PlaylistImportModal
-            open={playlistImportOpen}
-            loading={searching}
-            qqImportEnabled={qqImportEnabled}
-            immersive={immersiveMode}
-            onClose={() => setPlaylistImportOpen(false)}
-            onImport={handlePlaylistImport}
-          />,
+          <Suspense fallback={null}>
+            <PlaylistImportModal
+              open={playlistImportOpen}
+              loading={searching}
+              qqImportEnabled={qqImportEnabled}
+              immersive={immersiveMode}
+              onClose={() => setPlaylistImportOpen(false)}
+              onImport={handlePlaylistImport}
+            />
+          </Suspense>,
           document.body,
         )}
 
@@ -2705,25 +2720,29 @@ export default function Room() {
 
       {recommendDrawerOpen &&
         createPortal(
-          <RecommendedPlaylistsDrawer
-            open={recommendDrawerOpen}
-            immersive={immersiveMode}
-            onClose={() => setRecommendDrawerOpen(false)}
-            onSelectPlaylist={handleRecommendPlaylistSelect}
-          />,
+          <Suspense fallback={null}>
+            <RecommendedPlaylistsDrawer
+              open={recommendDrawerOpen}
+              immersive={immersiveMode}
+              onClose={() => setRecommendDrawerOpen(false)}
+              onSelectPlaylist={handleRecommendPlaylistSelect}
+            />
+          </Suspense>,
           document.body,
         )}
 
       {downloadModalOpen &&
         createPortal(
-          <ClientDownloadModal open={downloadModalOpen} onClose={() => setDownloadModalOpen(false)} />,
+          <Suspense fallback={null}>
+            <ClientDownloadModal open={downloadModalOpen} onClose={() => setDownloadModalOpen(false)} />
+          </Suspense>,
           document.body,
         )}
 
       {showPlayer && room.current && (
-
-        <PlayerPage onClose={() => setShowPlayer(false)} />
-
+        <Suspense fallback={null}>
+          <PlayerPage onClose={() => setShowPlayer(false)} />
+        </Suspense>
       )}
 
       {renameOpen && createPortal(
@@ -2809,7 +2828,7 @@ export default function Room() {
       )}
 
     </div>
-
+    </Suspense>
   );
 
 }

@@ -1045,9 +1045,18 @@ app.get('/sitemap.xml', (req, res) => {
 app.use(express.static(clientDist, {
   setHeaders(res, filePath) {
     const rel = path.relative(clientDist, filePath).replace(/\\/g, '/');
-    if (rel === 'index.html' || rel.startsWith('assets/')) {
-      // 稳定文件名 + 禁止长期缓存：发版覆盖源站后，CDN/浏览器会重新拉取
+    if (rel === 'index.html') {
+      // 入口页不长期缓存，确保发版后能拉到新资源
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      return;
+    }
+    if (rel.startsWith('assets/')) {
+      // 固定文件名：允许短缓存；发版后清 EO /assets 即可
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return;
+    }
+    if (rel.startsWith('qface/') || rel.startsWith('vendor/')) {
+      res.setHeader('Cache-Control', 'public, max-age=604800');
     }
   },
 }));

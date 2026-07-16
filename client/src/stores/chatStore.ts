@@ -17,6 +17,7 @@ function mergeMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMe
   const ids = new Set(existing.map((m) => m.id));
   const merged = [...existing];
   for (const message of incoming) {
+    if (message.kind === 'system') continue;
     if (!ids.has(message.id)) {
       merged.push(message);
       ids.add(message.id);
@@ -31,6 +32,7 @@ function prependMessages(existing: ChatMessage[], older: ChatMessage[]): ChatMes
   const ids = new Set(existing.map((m) => m.id));
   const merged: ChatMessage[] = [];
   for (const message of older) {
+    if (message.kind === 'system') continue;
     if (!ids.has(message.id)) {
       merged.push(message);
       ids.add(message.id);
@@ -71,6 +73,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp);
     const deduped: ChatMessage[] = [];
     for (const message of sorted) {
+      if (message.kind === 'system') continue;
       if (
         message.kind === 'welcome'
         && message.targetUserId
@@ -90,6 +93,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   append: (message) => {
+    if (message.kind === 'system') return;
     const state = get();
     if (state.chatVisibleSince != null && message.timestamp < state.chatVisibleSince) return;
     const existingIndex = state.messages.findIndex((m) => m.id === message.id);
