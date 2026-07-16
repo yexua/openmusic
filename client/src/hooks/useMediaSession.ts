@@ -28,6 +28,8 @@ type MediaSessionControls = {
 /**
  * 将房间播放/暂停/切歌同步到系统媒体控件（锁屏、通知栏、耳机键、键盘多媒体键）。
  * 有控制权时与页面按钮一致；无控制权时切歌改为提交申请。
+ * 房间可关闭系统播放/切歌绑定，防止摘耳机等误触。
+ * 无播放控制权的用户通过系统暂停不会改动房间播放状态。
  */
 export function useMediaSession({
   enabled = true,
@@ -46,11 +48,14 @@ export function useMediaSession({
     }
 
     const syncHandlers = () => {
-      const canControl = useRoomStore.getState().canControlPlayback;
-      const hasTrack = Boolean(useRoomStore.getState().room?.current);
+      const state = useRoomStore.getState();
+      const canControl = state.canControlPlayback;
+      const hasTrack = Boolean(state.room?.current);
+      const playBound = state.room?.systemMediaPlayBound !== false;
+      const skipBound = state.room?.systemMediaSkipBound !== false;
 
       bindMediaSessionActions({
-        play: hasTrack
+        play: hasTrack && playBound
           ? () => {
               const { room } = useRoomStore.getState();
               if (!room?.current) return;
@@ -69,12 +74,12 @@ export function useMediaSession({
               localPlayback?.(true);
             }
           : undefined,
-        pause: hasTrack
+        pause: hasTrack && playBound
           ? () => {
-              const { room } = useRoomStore.getState();
+              const { room, canControlPlayback } = useRoomStore.getState();
               if (!room?.current) return;
               const { localPlayback } = useAudioStore.getState();
-              if (canControl) {
+              if (canControlPlayback) {
                 updateMediaSessionPlaybackState('paused');
                 localPlayback?.(false);
                 void controlsRef.current.togglePlay(false);
@@ -86,7 +91,7 @@ export function useMediaSession({
               }
             }
           : undefined,
-        nexttrack: hasTrack
+        nexttrack: hasTrack && skipBound
           ? () => {
               const can = useRoomStore.getState().canControlPlayback;
               if (can) {
@@ -119,7 +124,7 @@ export function useMediaSession({
               controlsRef.current.seekTo(Math.max(0, details.seekTime));
             }
           : undefined,
-        stop: hasTrack && canControl
+        stop: hasTrack && canControl && playBound
           ? () => {
               useAudioStore.getState().localPlayback?.(false);
               void controlsRef.current.togglePlay(false);
@@ -172,6 +177,8 @@ export function useMediaSession({
         || state.room?.current?.pic !== prev.room?.current?.pic
         || state.room?.isPlaying !== prev.room?.isPlaying
         || state.canControlPlayback !== prev.canControlPlayback
+        || state.room?.systemMediaPlayBound !== prev.room?.systemMediaPlayBound
+        || state.room?.systemMediaSkipBound !== prev.room?.systemMediaSkipBound
         || Boolean(state.room?.current) !== Boolean(prev.room?.current)
       ) {
         syncHandlers();

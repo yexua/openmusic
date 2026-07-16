@@ -190,6 +190,8 @@ function snapshotRoomForStorage(room) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    systemMediaPlayBound: room.systemMediaPlayBound !== false,
+    systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
     dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
     dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
@@ -240,6 +242,8 @@ function restoreRoomFromStorage(data) {
   room.songRequestCooldownSec = normalizeSongRequestCooldownSec(data.songRequestCooldownSec);
   room.queueMaxLength = normalizeQueueMaxLength(data.queueMaxLength);
   room.memberJumpEnabled = Boolean(data.memberJumpEnabled);
+  room.systemMediaPlayBound = data.systemMediaPlayBound !== false;
+  room.systemMediaSkipBound = data.systemMediaSkipBound !== false;
   room.dislikeSkipMode = normalizeDislikeSkipMode(data.dislikeSkipMode);
   room.dislikeSkipThreshold = normalizeDislikeSkipThreshold(data.dislikeSkipThreshold);
   room.dislikeSkipPercent = normalizeDislikeSkipPercent(data.dislikeSkipPercent);
@@ -407,6 +411,8 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     songRequestCooldownSec: 0,
     queueMaxLength: DEFAULT_QUEUE_MAX_LENGTH,
     memberJumpEnabled: false,
+    systemMediaPlayBound: true,
+    systemMediaSkipBound: true,
     dislikeSkipMode: DEFAULT_DISLIKE_SKIP_MODE,
     dislikeSkipThreshold: DEFAULT_DISLIKE_SKIP_THRESHOLD,
     dislikeSkipPercent: DEFAULT_DISLIKE_SKIP_PERCENT,
@@ -1337,6 +1343,12 @@ export function setSongRequestEnabled(roomId, actorId, options = {}, connectionI
   if (options.memberJumpEnabled !== undefined) {
     room.memberJumpEnabled = Boolean(options.memberJumpEnabled);
   }
+  if (options.systemMediaPlayBound !== undefined) {
+    room.systemMediaPlayBound = Boolean(options.systemMediaPlayBound);
+  }
+  if (options.systemMediaSkipBound !== undefined) {
+    room.systemMediaSkipBound = Boolean(options.systemMediaSkipBound);
+  }
   if (options.dislikeSkipMode !== undefined) {
     room.dislikeSkipMode = normalizeDislikeSkipMode(options.dislikeSkipMode);
   }
@@ -2244,6 +2256,49 @@ export async function requestJump(roomId, socketId, queueId) {
   return { room: serializeRoom(room), systemMessage };
 }
 
+/**
+ * 房主/管理员拖拽重排待播队列；排序后写入 ownerPriority，边框样式与插队一致。
+ */
+export function reorderQueue(roomId, actorId, orderedQueueIds) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isControllerConnection(room, actorId)) return { error: '仅房主或管理员可排序播放列表' };
+
+  if (!Array.isArray(orderedQueueIds) || orderedQueueIds.length === 0) {
+    return { error: '排序参数无效' };
+  }
+
+  const byId = new Map(room.queue.map((song) => [song.queueId, song]));
+  if (orderedQueueIds.length !== room.queue.length) {
+    return { error: '排序与当前队列不匹配' };
+  }
+  const seen = new Set();
+  for (const queueId of orderedQueueIds) {
+    if (!byId.has(queueId) || seen.has(queueId)) {
+      return { error: '排序与当前队列不匹配' };
+    }
+    seen.add(queueId);
+  }
+
+  const actor = room.users.get(actorId);
+  const isAdminReorder = actor && !isRoomCreator(room, actorId);
+  const basePriority = Date.now();
+
+  room.queue = orderedQueueIds.map((queueId, index) => {
+    const song = byId.get(queueId);
+    song.ownerPriority = basePriority - index;
+    if (isAdminReorder) {
+      song.priorityBy = actor.nickname;
+    } else {
+      delete song.priorityBy;
+    }
+    return song;
+  });
+
+  persistRoom(room);
+  return { room: serializeRoom(room) };
+}
+
 export async function approveJump(roomId, socketId, requestId, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
@@ -2807,6 +2862,8 @@ function serializeRoom(room, options = {}) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    systemMediaPlayBound: room.systemMediaPlayBound !== false,
+    systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
     dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
     dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),
@@ -2855,6 +2912,8 @@ export function prepareRoomBroadcast(roomId) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    systemMediaPlayBound: room.systemMediaPlayBound !== false,
+    systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
     dislikeSkipThreshold: normalizeDislikeSkipThreshold(room.dislikeSkipThreshold),
     dislikeSkipPercent: normalizeDislikeSkipPercent(room.dislikeSkipPercent),

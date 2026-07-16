@@ -19,6 +19,8 @@ type SettingsTab = 'fm' | 'member' | 'announcement' | 'songRequest';
 export interface SongRequestSettings {
   enabled: boolean;
   memberJumpEnabled: boolean;
+  systemMediaPlayBound: boolean;
+  systemMediaSkipBound: boolean;
   dislikeSkipMode: DislikeSkipMode;
   dislikeSkipThreshold: number;
   dislikeSkipPercent: number;
@@ -33,6 +35,8 @@ export interface SongRequestSettings {
 function songRequestEqual(a: SongRequestSettings, b: SongRequestSettings) {
   return a.enabled === b.enabled
     && a.memberJumpEnabled === b.memberJumpEnabled
+    && a.systemMediaPlayBound === b.systemMediaPlayBound
+    && a.systemMediaSkipBound === b.systemMediaSkipBound
     && a.dislikeSkipMode === b.dislikeSkipMode
     && a.dislikeSkipThreshold === b.dislikeSkipThreshold
     && a.dislikeSkipPercent === b.dislikeSkipPercent
@@ -273,6 +277,8 @@ export default function RoomSettingsModal({
     || draftAnnouncementText.trim() !== announcementText.trim();
   const songRequestDirty = draftSongRequest.enabled !== songRequest.enabled
     || draftSongRequest.memberJumpEnabled !== songRequest.memberJumpEnabled
+    || draftSongRequest.systemMediaPlayBound !== songRequest.systemMediaPlayBound
+    || draftSongRequest.systemMediaSkipBound !== songRequest.systemMediaSkipBound
     || draftSongRequest.dislikeSkipMode !== songRequest.dislikeSkipMode
     || draftSongRequest.dislikeSkipThreshold !== songRequest.dislikeSkipThreshold
     || draftSongRequest.dislikeSkipPercent !== songRequest.dislikeSkipPercent
@@ -458,6 +464,22 @@ export default function RoomSettingsModal({
                   onChange={(memberJumpEnabled) => setDraftSongRequest((prev) => ({ ...prev, memberJumpEnabled }))}
                   label="允许成员插队"
                   description="开启后成员可对自己的点歌插队；房主与管理员始终可插队"
+                />
+
+                <Toggle
+                  checked={draftSongRequest.systemMediaPlayBound}
+                  disabled={songRequestSaving}
+                  onChange={(systemMediaPlayBound) => setDraftSongRequest((prev) => ({ ...prev, systemMediaPlayBound }))}
+                  label="系统播放键绑定"
+                  description="绑定耳机键 / 锁屏 / 通知栏的播放暂停；关闭可防止摘耳机误触暂停房间"
+                />
+
+                <Toggle
+                  checked={draftSongRequest.systemMediaSkipBound}
+                  disabled={songRequestSaving}
+                  onChange={(systemMediaSkipBound) => setDraftSongRequest((prev) => ({ ...prev, systemMediaSkipBound }))}
+                  label="系统切歌键绑定"
+                  description="绑定耳机键 / 锁屏 / 通知栏的下一首切歌；关闭可防止误触切歌"
                 />
 
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">

@@ -58,6 +58,7 @@ import {
   getRoomInternal,
   buildPlaybackState,
   requestJump,
+  reorderQueue,
   toggleQueueLike,
   toggleCurrentDislike,
   approveJump,
@@ -1451,7 +1452,7 @@ io.on('connection', (socket) => {
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
-  socket.on('set_room_song_request', ({ enabled, minStaySec, maxPerUser, cooldownSec, queueMaxLength, memberJumpEnabled, dislikeSkipMode, dislikeSkipThreshold, dislikeSkipPercent, clearSongsOnLeaveEnabled, clearSongsOnLeaveDelaySec }, callback) => {
+  socket.on('set_room_song_request', ({ enabled, minStaySec, maxPerUser, cooldownSec, queueMaxLength, memberJumpEnabled, systemMediaPlayBound, systemMediaSkipBound, dislikeSkipMode, dislikeSkipThreshold, dislikeSkipPercent, clearSongsOnLeaveEnabled, clearSongsOnLeaveDelaySec }, callback) => {
     if (rejectReadOnly(socket, callback)) return;
     if (rejectRateLimited(socket, limitSocketAction, 'set_room_song_request', callback)) return;
 
@@ -1468,6 +1469,8 @@ io.on('connection', (socket) => {
       cooldownSec,
       queueMaxLength,
       memberJumpEnabled,
+      systemMediaPlayBound,
+      systemMediaSkipBound,
       dislikeSkipMode,
       dislikeSkipThreshold,
       dislikeSkipPercent,
@@ -1861,6 +1864,29 @@ io.on('connection', (socket) => {
 
     broadcastRoomUpdate(roomId);
     emitSystemChat(roomId, result.systemMessage);
+    callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
+  });
+
+  socket.on('reorder_queue', ({ orderedQueueIds }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'reorder_queue', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = reorderQueue(roomId, getSocketUserId(socket), orderedQueueIds);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    io.to(roomId).emit('queue_snapshot', {
+      queue: result.room.queue,
+      current: result.room.current,
+    });
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 

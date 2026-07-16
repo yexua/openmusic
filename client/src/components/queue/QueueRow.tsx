@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Trash2, Zap, ThumbsUp, ThumbsDown, AlertTriangle, Ban } from 'lucide-react';
+import { Trash2, Zap, ThumbsUp, ThumbsDown, AlertTriangle, Ban, GripVertical } from 'lucide-react';
 import { getClientId } from '../../lib/clientId';
 import { useTrackSourceError } from '../../hooks/useSongSourceError';
 import type { RoomMemberTier, QueueItem } from '../../types';
@@ -26,12 +26,19 @@ interface Props {
   canControlPlayback: boolean;
   memberJumpEnabled?: boolean;
   dislikeSkipThreshold?: number;
+  /** 房主/管理员可拖拽排序 */
+  canReorder?: boolean;
+  isDragOver?: boolean;
   rowRef?: React.MutableRefObject<HTMLDivElement | null>;
   onLike: (queueId: string) => void;
   onDislike?: () => void;
   onJump: (queueId: string) => void;
   onRemove: (queueId: string) => void;
   onBan: (song: QueueRowSong) => void;
+  onDragStart?: (queueId: string) => void;
+  onDragOver?: (queueId: string, e: React.DragEvent) => void;
+  onDrop?: (queueId: string) => void;
+  onDragEnd?: () => void;
 }
 
 function QueueRow({
@@ -43,12 +50,18 @@ function QueueRow({
   canControlPlayback,
   memberJumpEnabled = false,
   dislikeSkipThreshold = 5,
+  canReorder = false,
+  isDragOver = false,
   rowRef,
   onLike,
   onDislike,
   onJump,
   onRemove,
   onBan,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: Props) {
   const myUserId = mySocketId || getClientId();
   const isMine = !song.isCurrent && Boolean(myUserId && (
@@ -67,20 +80,39 @@ function QueueRow({
   const hasSourceError = useTrackSourceError(song);
   const isAdminPriority = Boolean(song.ownerPriority && song.priorityBy);
   const isOwnerPriority = Boolean(song.ownerPriority && !song.priorityBy);
+  const allowDrag = canReorder && !song.isCurrent;
 
   const rowInner = (
     <>
-      <span className="w-5 text-center text-[11px] text-netease-muted flex-shrink-0">
-        {song.isCurrent ? (
-          <span className="inline-flex gap-0.5 items-end h-3.5">
-            <span className="w-0.5 h-1.5 bg-netease-red animate-pulse" />
-            <span className="w-0.5 h-2.5 bg-netease-red animate-pulse delay-75" />
-            <span className="w-0.5 h-1 bg-netease-red animate-pulse delay-150" />
-          </span>
-        ) : (
-          index
-        )}
-      </span>
+      {allowDrag ? (
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', song.queueId);
+            onDragStart?.(song.queueId);
+          }}
+          onDragEnd={() => onDragEnd?.()}
+          className="flex w-5 flex-shrink-0 cursor-grab items-center justify-center text-netease-muted/70 active:cursor-grabbing hover:text-white/80"
+          aria-label="拖动排序"
+          title="拖动排序"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      ) : (
+        <span className="w-5 text-center text-[11px] text-netease-muted flex-shrink-0">
+          {song.isCurrent ? (
+            <span className="inline-flex gap-0.5 items-end h-3.5">
+              <span className="w-0.5 h-1.5 bg-netease-red animate-pulse" />
+              <span className="w-0.5 h-2.5 bg-netease-red animate-pulse delay-75" />
+              <span className="w-0.5 h-1 bg-netease-red animate-pulse delay-150" />
+            </span>
+          ) : (
+            index
+          )}
+        </span>
+      )}
       <SongCover
         song={song}
         size="tiny"
@@ -214,14 +246,33 @@ function QueueRow({
     </>
   );
 
+  const dropHandlers = canReorder
+    ? {
+        onDragOver: (e: React.DragEvent) => {
+          if (song.isCurrent) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          onDragOver?.(song.queueId, e);
+        },
+        onDrop: (e: React.DragEvent) => {
+          if (song.isCurrent) return;
+          e.preventDefault();
+          onDrop?.(song.queueId);
+        },
+      }
+    : {};
+
   if (memberTier) {
     const memberInnerClassName = song.isCurrent ? 'bg-netease-red/10' : 'bg-transparent';
     return (
       <MemberQueueFrame variant="queue" tier={memberTier} innerClassName={memberInnerClassName}>
         <div
           ref={rowRef}
-          className="group flex items-center gap-2.5 px-2.5 py-2 transition-colors hover:bg-netease-card/80"
+          className={`group flex items-center gap-2.5 px-2.5 py-2 transition-colors hover:bg-netease-card/80 ${
+            isDragOver ? 'ring-1 ring-amber-400/40' : ''
+          }`}
           style={{ minHeight: QUEUE_ROW_HEIGHT }}
+          {...dropHandlers}
         >
           {rowInner}
         </div>
@@ -240,8 +291,9 @@ function QueueRow({
             : isOwnerPriority
               ? 'bg-amber-400/10 border border-amber-400/20 hover:bg-amber-400/15'
               : 'bg-netease-card/35 border-transparent hover:bg-netease-card/80'
-      }`}
+      } ${isDragOver ? 'ring-1 ring-amber-400/50' : ''}`}
       style={{ minHeight: QUEUE_ROW_HEIGHT }}
+      {...dropHandlers}
     >
       {rowInner}
     </div>

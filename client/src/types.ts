@@ -177,6 +177,10 @@ export interface RoomState {
   songRequestEnabled?: boolean;
   /** 是否允许成员为自己的点歌插队（默认关闭，房主/管理员始终可插队） */
   memberJumpEnabled?: boolean;
+  /** 是否绑定系统媒体键播放/暂停（耳机键、锁屏控件等；关闭可防摘耳机误触） */
+  systemMediaPlayBound?: boolean;
+  /** 是否绑定系统媒体键切歌（耳机键、锁屏下一首等） */
+  systemMediaSkipBound?: boolean;
   /** 踩歌切歌模式：固定人数或在线比例 */
   dislikeSkipMode?: 'count' | 'percent';
   /** 踩歌切歌固定人数（count 模式），默认 5 */

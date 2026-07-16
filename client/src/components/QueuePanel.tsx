@@ -21,12 +21,18 @@ type RowData = {
   canControlPlayback: boolean;
   memberJumpEnabled: boolean;
   dislikeSkipThreshold: number;
+  canReorder: boolean;
+  dragOverQueueId: string | null;
   currentRef: React.RefObject<HTMLDivElement | null>;
   onLike: (queueId: string) => void;
   onDislike: () => void;
   onJump: (queueId: string) => void;
   onRemove: (queueId: string) => void;
   onBan: (song: QueueRowSong) => void;
+  onDragStart: (queueId: string) => void;
+  onDragOver: (queueId: string) => void;
+  onDrop: (queueId: string) => void;
+  onDragEnd: () => void;
 };
 
 function VirtualQueueRow({ index, style, data }: ListChildComponentProps<RowData>) {
@@ -44,12 +50,22 @@ function VirtualQueueRow({ index, style, data }: ListChildComponentProps<RowData
         canControlPlayback={data.canControlPlayback}
         memberJumpEnabled={data.memberJumpEnabled}
         dislikeSkipThreshold={data.dislikeSkipThreshold}
+        canReorder={data.canReorder}
+        isDragOver={Boolean(
+          data.dragOverQueueId
+          && data.dragOverQueueId === song.queueId
+          && !song.isCurrent
+        )}
         rowRef={song.isCurrent ? data.currentRef : undefined}
         onLike={data.onLike}
         onDislike={song.isCurrent ? data.onDislike : undefined}
         onJump={data.onJump}
         onRemove={data.onRemove}
         onBan={data.onBan}
+        onDragStart={data.onDragStart}
+        onDragOver={data.onDragOver}
+        onDrop={data.onDrop}
+        onDragEnd={data.onDragEnd}
       />
     </div>
   );
@@ -69,12 +85,15 @@ export default function QueuePanel({ fillHeight = false }: Props) {
   const canControlPlayback = useRoomStore((s) => s.canControlPlayback);
   const memberJumpEnabled = useRoomStore((s) => Boolean(s.room?.memberJumpEnabled));
   const dislikeSkipThreshold = useRoomStore((s) => resolveDislikeSkipThreshold(s.room));
-  const { removeSong, requestJump, toggleQueueLike, toggleCurrentDislike, banRoomSong } = useSocket();
+  const { removeSong, requestJump, reorderQueue, toggleQueueLike, toggleCurrentDislike, banRoomSong } = useSocket();
   const [jumpMsg, setJumpMsg] = useState('');
+  const [dragFromId, setDragFromId] = useState<string | null>(null);
+  const [dragOverQueueId, setDragOverQueueId] = useState<string | null>(null);
   const currentRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<FixedSizeList>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
   const [virtualListHeight, setVirtualListHeight] = useState(LIST_HEIGHT);
+  const dragFromIdRef = useRef<string | null>(null);
 
   const allSongs = useMemo<QueueRowSong[]>(() => {
     return [
@@ -169,6 +188,45 @@ export default function QueuePanel({ fillHeight = false }: Props) {
     }
   }, [banRoomSong, showQueueMessage]);
 
+  const handleDragStart = useCallback((queueId: string) => {
+    dragFromIdRef.current = queueId;
+    setDragFromId(queueId);
+  }, []);
+
+  const handleDragOver = useCallback((queueId: string) => {
+    setDragOverQueueId((prev) => (prev === queueId ? prev : queueId));
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragFromIdRef.current = null;
+    setDragFromId(null);
+    setDragOverQueueId(null);
+  }, []);
+
+  const handleDrop = useCallback(async (targetQueueId: string) => {
+    const fromId = dragFromIdRef.current;
+    dragFromIdRef.current = null;
+    setDragFromId(null);
+    setDragOverQueueId(null);
+    if (!fromId || fromId === targetQueueId || !canControlPlayback) return;
+
+    const queueIds = (queue || []).map((s) => s.queueId).filter(Boolean);
+    const fromIndex = queueIds.indexOf(fromId);
+    const toIndex = queueIds.indexOf(targetQueueId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const next = [...queueIds];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+
+    const res = await reorderQueue(next);
+    if (res.success) {
+      showQueueMessage('已调整播放顺序');
+    } else {
+      showQueueMessage(res.error || '排序失败');
+    }
+  }, [canControlPlayback, queue, reorderQueue, showQueueMessage]);
+
   const rowData = useMemo<RowData>(() => ({
     songs: allSongs,
     memberTiers,
@@ -177,12 +235,18 @@ export default function QueuePanel({ fillHeight = false }: Props) {
     canControlPlayback,
     memberJumpEnabled,
     dislikeSkipThreshold,
+    canReorder: canControlPlayback,
+    dragOverQueueId,
     currentRef,
     onLike: handleLike,
     onDislike: handleDislike,
     onJump: handleJumpRequest,
     onRemove: removeSong,
     onBan: handleBanSong,
+    onDragStart: handleDragStart,
+    onDragOver: handleDragOver,
+    onDrop: handleDrop,
+    onDragEnd: handleDragEnd,
   }), [
     allSongs,
     memberTiers,
@@ -191,11 +255,16 @@ export default function QueuePanel({ fillHeight = false }: Props) {
     canControlPlayback,
     memberJumpEnabled,
     dislikeSkipThreshold,
+    dragOverQueueId,
     handleLike,
     handleDislike,
     handleJumpRequest,
     removeSong,
     handleBanSong,
+    handleDragStart,
+    handleDragOver,
+    handleDrop,
+    handleDragEnd,
   ]);
 
   if (!hasRoom) return null;
@@ -225,12 +294,18 @@ export default function QueuePanel({ fillHeight = false }: Props) {
       canControlPlayback={canControlPlayback}
       memberJumpEnabled={memberJumpEnabled}
       dislikeSkipThreshold={dislikeSkipThreshold}
+      canReorder={canControlPlayback}
+      isDragOver={Boolean(dragOverQueueId && dragOverQueueId === song.queueId && dragFromId !== song.queueId)}
       rowRef={song.isCurrent ? currentRef : undefined}
       onLike={handleLike}
       onDislike={song.isCurrent ? handleDislike : undefined}
       onJump={handleJumpRequest}
       onRemove={removeSong}
       onBan={handleBanSong}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
     />
   ));
 

@@ -176,6 +176,8 @@ export function isRoomStateEquivalent(a: RoomState, b: RoomState): boolean {
     && a.announcementText === b.announcementText
     && a.songRequestEnabled === b.songRequestEnabled
     && a.memberJumpEnabled === b.memberJumpEnabled
+    && a.systemMediaPlayBound === b.systemMediaPlayBound
+    && a.systemMediaSkipBound === b.systemMediaSkipBound
     && a.dislikeSkipMode === b.dislikeSkipMode
     && a.dislikeSkipThreshold === b.dislikeSkipThreshold
     && a.dislikeSkipPercent === b.dislikeSkipPercent

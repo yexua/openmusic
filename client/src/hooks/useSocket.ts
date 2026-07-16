@@ -736,6 +736,19 @@ if (s.connected) {
 
   }, []);
 
+  const reorderQueue = useCallback((orderedQueueIds: string[]): Promise<{ success: boolean; error?: string; room?: RoomState }> => {
+    return emitWithAck<{ success: boolean; error?: string; room?: RoomState }>(
+      'reorder_queue',
+      { orderedQueueIds },
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        applyRoomSnapshot(res.room);
+      }
+      return res;
+    });
+  }, []);
+
   const toggleQueueLike = useCallback((queueId: string): Promise<{ success: boolean; liked?: boolean; error?: string }> => {
     return emitWithAck('toggle_queue_like', { queueId }, { success: false, error: '连接超时，请重试' });
 
@@ -970,6 +983,8 @@ if (s.connected) {
   const setSongRequestEnabled = useCallback((options: {
     enabled?: boolean;
     memberJumpEnabled?: boolean;
+    systemMediaPlayBound?: boolean;
+    systemMediaSkipBound?: boolean;
     dislikeSkipMode?: 'count' | 'percent';
     dislikeSkipThreshold?: number;
     dislikeSkipPercent?: number;
@@ -1156,6 +1171,7 @@ if (s.connected) {
     clearQueue,
 
     requestJump,
+    reorderQueue,
     toggleQueueLike,
     toggleCurrentDislike,
 

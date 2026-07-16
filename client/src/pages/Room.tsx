@@ -373,6 +373,8 @@ export default function Room() {
   const songRequestSettings: SongRequestSettings = useMemo(() => ({
     enabled: room?.songRequestEnabled !== false,
     memberJumpEnabled: Boolean(room?.memberJumpEnabled),
+    systemMediaPlayBound: room?.systemMediaPlayBound !== false,
+    systemMediaSkipBound: room?.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room?.dislikeSkipMode),
     dislikeSkipThreshold: Math.max(1, room?.dislikeSkipThreshold ?? 5),
     dislikeSkipPercent: Math.min(100, Math.max(1, room?.dislikeSkipPercent ?? 50)),
@@ -385,6 +387,8 @@ export default function Room() {
   }), [
     room?.songRequestEnabled,
     room?.memberJumpEnabled,
+    room?.systemMediaPlayBound,
+    room?.systemMediaSkipBound,
     room?.dislikeSkipMode,
     room?.dislikeSkipThreshold,
     room?.dislikeSkipPercent,
@@ -1060,6 +1064,8 @@ export default function Room() {
     const res = await setSongRequestEnabled({
       enabled: settings.enabled,
       memberJumpEnabled: settings.memberJumpEnabled,
+      systemMediaPlayBound: settings.systemMediaPlayBound,
+      systemMediaSkipBound: settings.systemMediaSkipBound,
       dislikeSkipMode: settings.dislikeSkipMode,
       dislikeSkipThreshold: settings.dislikeSkipThreshold,
       dislikeSkipPercent: settings.dislikeSkipPercent,
