@@ -8,25 +8,36 @@ const SIGNED_URL_CACHE_TTL_MS = 4 * 60 * 1000;
 
 const signedUrlCache = new Map<string, { url: string; expires: number }>();
 
-/** 去掉已有签名参数，得到可缓存/可重签的裸 URL */
-export function stripApiSignParams(relativeUrl: string): string {
+/**
+ * 去掉已有签名参数。
+ * - 同源 /api 相对路径：返回 pathname+search
+ * - 外链（网易 CDN 等）：原样返回，绝不能裁掉 origin
+ */
+export function stripApiSignParams(url: string): string {
+  if (!url) return url;
   try {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-    const parsed = new URL(relativeUrl, origin);
+    const parsed = new URL(url, origin);
+    const hadSign = SIGN_QUERY_KEYS.some((key) => parsed.searchParams.has(key));
     for (const key of SIGN_QUERY_KEYS) parsed.searchParams.delete(key);
+
+    // 外链或非 /api：保留完整绝对地址（或原样）
+    if (parsed.origin !== origin || !parsed.pathname.startsWith('/api/')) {
+      if (!hadSign && /^https?:\/\//i.test(url)) return url;
+      return parsed.href;
+    }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
-    return relativeUrl;
+    return url;
   }
 }
 
 /**
  * 为同源 /api URL 附加 query 签名。
- * 媒体路径（/api/meting、/api/media-proxy）每次重新颁发，有效期由服务端
- * API_MEDIA_SIGN_WINDOW_SEC 决定（最少 20 分钟），不复用旧签名。
+ * 媒体路径每次重新颁发；外链直链不做任何改写。
  */
 export async function signApiUrl(relativeUrl: string, options?: { force?: boolean }): Promise<string> {
-  if (!needsApiSign(relativeUrl)) return stripApiSignParams(relativeUrl);
+  if (!needsApiSign(relativeUrl)) return relativeUrl;
 
   const cacheKey = stripApiSignParams(relativeUrl);
   const media = isMediaApiPath(cacheKey);
@@ -54,16 +65,16 @@ export async function signApiUrl(relativeUrl: string, options?: { force?: boolea
   return signed;
 }
 
-/** 强制换发新签名（播放重试 / 中途续播时使用） */
+/** 强制换发新签名；非 /api 直链原样返回 */
 export async function refreshSignedApiUrl(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
-  if (!needsApiSign(url)) return stripApiSignParams(url);
+  if (!needsApiSign(url)) return url;
   return signApiUrl(url, { force: true });
 }
 
 export async function resolveSignedApiUrl(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
-  if (!needsApiSign(url)) return stripApiSignParams(url);
+  if (!needsApiSign(url)) return url;
   return signApiUrl(url);
 }
 
@@ -80,7 +91,7 @@ export function useSignedApiUrl(url: string | null | undefined): string | null {
       return;
     }
     if (!needsApiSign(url)) {
-      setSigned(stripApiSignParams(url));
+      setSigned(url);
       return;
     }
 
