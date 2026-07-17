@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { applyAllAudioVolume } from '../lib/audioVolume';
 
 const VOLUME_KEY = 'openmusic:volume';
 
@@ -68,6 +69,7 @@ export const useAudioStore = create<AudioStore>((set) => ({
   setVolume: (volume) => {
     const next = Math.min(1, Math.max(0, volume));
     set({ volume: next });
+    applyAllAudioVolume(next);
     try {
       localStorage.setItem(VOLUME_KEY, String(next));
     } catch {

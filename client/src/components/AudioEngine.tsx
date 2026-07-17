@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { usePrefetchTrackDuration } from '../hooks/usePrefetchTrackDuration';
 import { useAudioStore } from '../stores/audioStore';
-import { applyAudioVolume } from '../lib/audioElement';
+import { applyAllAudioVolume } from '../lib/audioVolume';
 import AudioUnlockOverlay from './AudioUnlockOverlay';
 
 interface Props {
@@ -15,7 +15,7 @@ export default function AudioEngine({ tvMode = false }: Props) {
   usePrefetchTrackDuration();
 
   useEffect(() => {
-    applyAudioVolume(volume);
+    applyAllAudioVolume(volume);
   }, [volume]);
 
   return <AudioUnlockOverlay tvMode={tvMode} />;

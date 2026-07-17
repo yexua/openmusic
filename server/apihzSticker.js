@@ -1,22 +1,18 @@
-const API_BASE = 'https://cn.apihz.cn/api/img/apihzbqbbaidu.php';
-const APIHZ_IMG_ID = (process.env.APIHZ_IMG_ID || process.env.APIHZ_ID || '').trim();
-const APIHZ_IMG_KEY = (process.env.APIHZ_IMG_KEY || process.env.APIHZ_KEY || '').trim();
+import {
+  buildApihzUrl,
+  fetchApihz,
+  getApihzId,
+  getApihzKey,
+  isApihzConfigured,
+} from './apihz.js';
+
+const STICKER_ENDPOINT = 'img/apihzbqbbaidu.php';
 const DEFAULT_LIMIT = 15;
 const MAX_LIMIT = 20;
 const SEARCH_TIMEOUT_MS = 10000;
 
 export function isApihzStickerConfigured() {
-  return Boolean(APIHZ_IMG_ID && APIHZ_IMG_KEY);
-}
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = SEARCH_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  return isApihzConfigured();
 }
 
 export async function searchApihzStickers(words, page = 1, limit = DEFAULT_LIMIT) {
@@ -32,14 +28,14 @@ export async function searchApihzStickers(words, page = 1, limit = DEFAULT_LIMIT
   const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Number(limit) || DEFAULT_LIMIT));
 
   const params = new URLSearchParams({
-    id: APIHZ_IMG_ID,
-    key: APIHZ_IMG_KEY,
+    id: getApihzId(),
+    key: getApihzKey(),
     limit: String(safeLimit),
     page: String(safePage),
     words: normalizedWords,
   });
 
-  const res = await fetchWithTimeout(`${API_BASE}?${params.toString()}`);
+  const res = await fetchApihz(`${buildApihzUrl(STICKER_ENDPOINT)}?${params.toString()}`, {}, SEARCH_TIMEOUT_MS);
   if (!res.ok) throw new Error('搜索服务暂时不可用');
 
   const data = await res.json();

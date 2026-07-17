@@ -2,6 +2,7 @@ import type { SearchResult } from '../types';
 import { getSongUrl, songKey } from '../api/music';
 import { getSharedAudio } from './audioElement';
 import { getAudioController } from './audioController';
+import { configureInlineAudio } from './audioUnlock';
 import { useAudioStore } from '../stores/audioStore';
 import { useRoomStore } from '../stores/roomStore';
 
@@ -31,10 +32,21 @@ export function isSongPreviewSuppressingRoom(): boolean {
   return status === 'loading' || status === 'playing' || status === 'paused';
 }
 
+export function applyPreviewVolume(volume: number): void {
+  if (!previewAudio) return;
+  previewAudio.volume = Math.min(1, Math.max(0, volume));
+}
+
+function syncPreviewVolume(): void {
+  applyPreviewVolume(useAudioStore.getState().volume);
+}
+
 function getOrCreatePreviewAudio(): HTMLAudioElement {
   if (!previewAudio) {
     previewAudio = new Audio();
+    configureInlineAudio(previewAudio);
     previewAudio.preload = 'metadata';
+    syncPreviewVolume();
     previewAudio.addEventListener('ended', () => {
       finishPreview({ resumeRoom: true });
     });
@@ -123,6 +135,7 @@ export async function toggleSongPreview(song: SearchResult): Promise<void> {
     }
     if (status === 'paused') {
       pauseRoomAudioLocally();
+      syncPreviewVolume();
       try {
         await audio.play();
         status = 'playing';
@@ -153,6 +166,7 @@ export async function toggleSongPreview(song: SearchResult): Promise<void> {
     if (!url) throw new Error('empty url');
 
     audio.src = url;
+    syncPreviewVolume();
     await audio.play();
     if (token !== loadToken || activeKey !== key) return;
     status = 'playing';

@@ -633,14 +633,10 @@ export default function Room() {
           const sentPassword = Boolean(roomPassword?.trim());
           if (sentPassword) {
             clearStoredRoomPassword(roomId);
-            setNeedsPasswordPrompt(false);
-            setJoinError(res.error || '密码错误');
-            redirectTimer = window.setTimeout(() => navigate('/'), 2000);
-            return;
           }
           setNeedsPasswordPrompt(true);
           setIgnoreUrlPassword(true);
-          setJoinError(res.error || '请输入房间密码');
+          setJoinError(sentPassword ? (res.error || '密码错误') : '');
           if (parseRoomPasswordFromSearch(location.search)) {
             const nextSearch = stripRoomPasswordFromSearch(location.search);
             navigate(
@@ -1509,6 +1505,13 @@ export default function Room() {
             className="w-full bg-netease-red hover:bg-red-500 text-white font-medium py-3 rounded-xl transition-colors"
           >
             进入房间
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="w-full mt-2 text-sm text-white/50 hover:text-white/80 py-2 transition-colors"
+          >
+            返回大厅
           </button>
         </div>
 

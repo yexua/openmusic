@@ -107,6 +107,7 @@ import {
   isApihzStickerConfigured,
   searchApihzStickers,
 } from './apihzSticker.js';
+import { checkApihzSensitiveWords } from './apihzSensitiveWord.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.join(__dirname, '../client/dist');
@@ -2304,7 +2305,7 @@ io.on('connection', (socket) => {
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
   });
 
-  socket.on('send_chat', ({ text, mentions, replyTo, imageUrl, imageKey, asSticker }, callback) => {
+  socket.on('send_chat', async ({ text, mentions, replyTo, imageUrl, imageKey, asSticker }, callback) => {
     if (rejectReadOnly(socket, callback)) return;
     if (rejectRateLimited(socket, limitSocketChat, 'send_chat', callback)) return;
 
@@ -2312,6 +2313,15 @@ io.on('connection', (socket) => {
     if (!roomId) {
       callback?.({ success: false, error: '未加入房间' });
       return;
+    }
+
+    const textContent = String(text || '').trim();
+    if (textContent) {
+      const sensitive = await checkApihzSensitiveWords(textContent);
+      if (!sensitive.ok) {
+        callback?.({ success: false, error: sensitive.error });
+        return;
+      }
     }
 
     const result = addChatMessage(roomId, getSocketUserId(socket), text, {

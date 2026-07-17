@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { useAudioStore } from '../stores/audioStore';
-import { applyAudioVolume } from '../lib/audioElement';
+import { applyAllAudioVolume } from '../lib/audioVolume';
 import Tooltip from './Tooltip';
 
 interface Props {
@@ -33,7 +33,7 @@ export default function VolumeControl({
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    applyAudioVolume(volume);
+    applyAllAudioVolume(volume);
   }, [volume]);
 
   useEffect(() => {

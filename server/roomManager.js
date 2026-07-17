@@ -76,7 +76,71 @@ function notifyRoomPrefetchReady(room) {
 function notifyRoomStructureChanged(roomId) {
   if (onRoomStructureChanged) onRoomStructureChanged(roomId);
 }
+
+function skipRequestTimerKey(roomId, requestId) {
+  return `${roomId}:${requestId}`;
+}
+
+function clearSkipRequestExpiryTimer(roomId, requestId) {
+  const key = skipRequestTimerKey(roomId, requestId);
+  const timer = skipRequestExpiryTimers.get(key);
+  if (!timer) return;
+  clearTimeout(timer);
+  skipRequestExpiryTimers.delete(key);
+}
+
+function clearSkipRequestExpiryTimersForRoom(roomId) {
+  const prefix = `${roomId}:`;
+  for (const [key, timer] of skipRequestExpiryTimers) {
+    if (!key.startsWith(prefix)) continue;
+    clearTimeout(timer);
+    skipRequestExpiryTimers.delete(key);
+  }
+}
+
+function expireSkipRequest(roomId, requestId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  const before = room.skipRequests.length;
+  room.skipRequests = room.skipRequests.filter((r) => r.id !== requestId);
+  if (room.skipRequests.length === before) return;
+  persistRoom(room);
+  notifyRoomStructureChanged(roomId);
+}
+
+function scheduleSkipRequestExpiry(roomId, requestId, requestedAt = Date.now()) {
+  clearSkipRequestExpiryTimer(roomId, requestId);
+  const remainingMs = Math.max(0, SKIP_REQUEST_TTL_MS - (Date.now() - requestedAt));
+  const key = skipRequestTimerKey(roomId, requestId);
+  const timer = setTimeout(() => {
+    skipRequestExpiryTimers.delete(key);
+    expireSkipRequest(roomId, requestId);
+  }, remainingMs);
+  skipRequestExpiryTimers.set(key, timer);
+}
+
+function syncSkipRequestExpiryTimers(room) {
+  if (!room) return;
+  clearSkipRequestExpiryTimersForRoom(room.id);
+  room.skipRequests.forEach((request) => {
+    scheduleSkipRequestExpiry(room.id, request.id, request.requestedAt);
+  });
+}
+
+function purgeExpiredSkipRequests(room) {
+  const now = Date.now();
+  const before = room.skipRequests.length;
+  room.skipRequests = room.skipRequests.filter((request) => {
+    const expired = now - request.requestedAt >= SKIP_REQUEST_TTL_MS;
+    if (expired) clearSkipRequestExpiryTimer(room.id, request.id);
+    return !expired;
+  });
+  return before !== room.skipRequests.length;
+}
 const AUTO_ADVANCE_GRACE_SEC = 0.15;
+const SKIP_REQUEST_TTL_MS = 10_000;
+/** @type {Map<string, ReturnType<typeof setTimeout>>} */
+const skipRequestExpiryTimers = new Map();
 const NETEASE_CANONICAL = new Set(['standard', 'higher', 'exhigh', 'lossless', 'hires']);
 const TENCENT_CANONICAL = new Set(['standard', 'exhigh', 'lossless']);
 const QUALITY_ALIASES = {
@@ -140,8 +204,14 @@ export function verifyRoomPassword(roomId, password, options = {}) {
     return { ok: false, error: '房间已上锁，禁止进入' };
   }
 
-  if (room.passwordHash && !verifyPassword(password, room.passwordHash)) {
-    return { ok: false, error: '密码错误', needsPassword: true };
+  if (room.passwordHash) {
+    const normalized = normalizeRoomPasswordInput(password);
+    if (!normalized) {
+      return { ok: false, error: '请输入房间密码', needsPassword: true };
+    }
+    if (!verifyPassword(password, room.passwordHash)) {
+      return { ok: false, error: '密码错误', needsPassword: true };
+    }
   }
   return { ok: true };
 }
@@ -162,6 +232,7 @@ function scheduleRoomDestroy(roomId) {
     const current = rooms.get(roomId);
     if (current && current.users.size === 0) {
       clearAllPendingLeaveClears(current);
+      clearSkipRequestExpiryTimersForRoom(roomId);
       void deleteRoomChatImages(roomId).finally(() => {
         rooms.delete(roomId);
         invalidateRoomsListCache();
@@ -244,6 +315,8 @@ function restoreRoomFromStorage(data) {
     .filter(Boolean);
   room.jumpRequests = data.jumpRequests || [];
   room.skipRequests = data.skipRequests || [];
+  purgeExpiredSkipRequests(room);
+  syncSkipRequestExpiryTimers(room);
   room.randomPlayedKeys = new Set(data.randomPlayedKeys || []);
   room.nextRandom = serializeSongMeta(data.nextRandom);
   room.creatorId = data.creatorId ?? null;
@@ -1749,6 +1822,7 @@ export async function kickUser(roomId, actorId, targetUserId, connectionId = nul
 
   room.jumpRequests = room.jumpRequests.filter((r) => room.users.has(r.requestedBy));
   room.skipRequests = room.skipRequests.filter((r) => room.users.has(r.requestedBy));
+  syncSkipRequestExpiryTimers(room);
 
   scheduleClearUserSongsOnLeave(room, targetId);
 
@@ -1822,6 +1896,7 @@ export function removeUser(roomId, userId, connectionId = null) {
 
   room.jumpRequests = room.jumpRequests.filter((r) => room.users.has(r.requestedBy));
   room.skipRequests = room.skipRequests.filter((r) => room.users.has(r.requestedBy));
+  syncSkipRequestExpiryTimers(room);
 
   scheduleClearUserSongsOnLeave(room, userId);
 
@@ -2653,6 +2728,9 @@ export function requestSkip(roomId, socketId) {
     requestedAt: Date.now(),
   });
 
+  const created = room.skipRequests[room.skipRequests.length - 1];
+  scheduleSkipRequestExpiry(roomId, created.id, created.requestedAt);
+
   persistRoom(room);
   return { room: serializeRoom(room) };
 }
@@ -2665,6 +2743,7 @@ export async function approveSkip(roomId, socketId, requestId, connectionId = nu
   const reqIdx = room.skipRequests.findIndex((r) => r.id === requestId);
   if (reqIdx === -1) return { error: '申请不存在' };
 
+  clearSkipRequestExpiryTimer(roomId, requestId);
   room.skipRequests.splice(reqIdx, 1);
   await playNext(room, { allowFetchRandom: false });
 
@@ -2680,6 +2759,8 @@ export function rejectSkip(roomId, socketId, requestId, connectionId = null) {
   const before = room.skipRequests.length;
   room.skipRequests = room.skipRequests.filter((r) => r.id !== requestId);
   if (room.skipRequests.length === before) return { error: '申请不存在' };
+
+  clearSkipRequestExpiryTimer(roomId, requestId);
 
   persistRoom(room);
   return { room: serializeRoom(room) };

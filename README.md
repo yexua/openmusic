@@ -83,7 +83,9 @@ METING_API_AUTH=你的meting_token
 | `CYAPI_KEY` | 🔵 可选；蓝点搜索 / 空队列随机推荐（[迟言 API](https://cyapi.top/)） |
 | `REDIS_URL` | 🗄️ 可选；房间与热榜持久化，**强烈推荐** |
 | `QINIU_*` | 🖼️ 可选；聊天发图 |
-| `APIHZ_IMG_*` | 😺 可选；聊天表情包搜索 |
+| `APIHZ_BASE_URL` | 可选；接口盒子 API 根地址，默认 `https://cn.apihz.cn/api` |
+| `APIHZ_ID` / `APIHZ_KEY` | 可选；接口盒子凭证（表情包搜索、敏感词检测共用） |
+| `APIHZ_IMG_*` | 可选；与 `APIHZ_ID` / `APIHZ_KEY` 等价，兼容旧配置名 |
 
 📚 完整说明 → [docs/DEPLOY.md](docs/DEPLOY.md)
 

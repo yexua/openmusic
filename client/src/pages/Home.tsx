@@ -306,18 +306,7 @@ export default function Home() {
       <header className="relative z-20 flex-shrink-0 border-b border-white/5 glass safe-top">
         <div className="relative h-14 sm:h-16">
           <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 z-30 flex items-center gap-2">
-            {isMobileDevice() ? (
-              <Tooltip content="下载客户端">
-                <button
-                  type="button"
-                  onClick={() => setDownloadModalOpen(true)}
-                  className="p-2.5 rounded-xl text-white/70 border border-white/10 hover:text-white hover:bg-white/5 transition-colors"
-                  aria-label="下载客户端"
-                >
-                  <Smartphone className="w-4 h-4" />
-                </button>
-              </Tooltip>
-            ) : (
+            {!isMobileDevice() && (
               <>
                 <Tooltip content="下载 Android 客户端">
                   <a
@@ -345,7 +334,7 @@ export default function Home() {
               href="https://gitee.com/w3126197382/openmusic"
               target="_blank"
               rel="noopener noreferrer"
-              className={repoLinkCls}
+              className={`hidden sm:flex ${repoLinkCls}`}
               aria-label="Gitee 仓库"
             >
               <GiteeIcon className="w-4 h-4" />
@@ -360,7 +349,7 @@ export default function Home() {
               <Github className="w-4 h-4" />
             </a>
           </div>
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 pr-24 sm:pr-72 h-full flex items-center gap-3 sm:gap-4">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 sm:pr-72 h-full flex items-center gap-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-2.5 flex-shrink-0">
             <div className="w-9 h-9 rounded-xl bg-netease-red/15 flex items-center justify-center">
               <Music className="w-5 h-5 text-netease-red" />
@@ -368,7 +357,7 @@ export default function Home() {
             <span className="hidden sm:block text-lg font-bold text-gradient">OpenMusic</span>
           </div>
 
-          <div className="flex-1 min-w-0 max-w-xs">
+          <div className="flex-1 min-w-0 sm:max-w-xs">
             <input
               type="text"
               value={nickname}
@@ -379,7 +368,7 @@ export default function Home() {
             />
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => { setError(''); setShowJoin(true); }}
@@ -412,6 +401,18 @@ export default function Home() {
             >
               <Plus className="w-4 h-4" />
             </button>
+            {isMobileDevice() && (
+              <Tooltip content="下载客户端">
+                <button
+                  type="button"
+                  onClick={() => setDownloadModalOpen(true)}
+                  className="sm:hidden p-2.5 rounded-xl text-white/70 border border-white/10 hover:text-white hover:bg-white/5 transition-colors"
+                  aria-label="下载客户端"
+                >
+                  <Smartphone className="w-4 h-4" />
+                </button>
+              </Tooltip>
+            )}
           </div>
         </div>
         </div>
