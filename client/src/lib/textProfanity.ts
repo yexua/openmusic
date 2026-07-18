@@ -18,15 +18,39 @@ type QuotaState = {
 
 type CachedVerdict = {
   blocked: boolean;
+  forbiddenWords: string[];
   expiresAt: number;
 };
 
 const verdictCache = new Map<string, CachedVerdict>();
-const inflightChecks = new Map<string, Promise<boolean | null>>();
+const inflightChecks = new Map<string, Promise<ProfanityVerdict>>();
 
 export type TextProfanityResult =
   | { ok: true; pass?: string }
   | { ok: false; error: string };
+
+type ProfanityVerdict =
+  | { kind: 'pass' }
+  | { kind: 'blocked'; forbiddenWords: string[] }
+  | { kind: 'skip' };
+
+function uniqueWords(words: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const word of words) {
+    const cleaned = String(word || '').trim();
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function formatBlockedError(forbiddenWords: string[]): string {
+  const words = uniqueWords(forbiddenWords);
+  if (words.length === 0) return '消息包含敏感词，请修改后发送';
+  return `消息包含敏感词（${words.join('、')}），请修改后发送`;
+}
 
 async function sha256Hex(text: string): Promise<string> {
   const encoded = new TextEncoder().encode(text);
@@ -99,19 +123,22 @@ function syncRemoteQuota(response: Response): void {
   }
 }
 
-function getCachedVerdict(textHash: string): boolean | null {
+function getCachedVerdict(textHash: string): ProfanityVerdict | null {
   const cached = verdictCache.get(textHash);
   if (!cached) return null;
   if (cached.expiresAt <= Date.now()) {
     verdictCache.delete(textHash);
     return null;
   }
-  return cached.blocked;
+  return cached.blocked
+    ? { kind: 'blocked', forbiddenWords: cached.forbiddenWords }
+    : { kind: 'pass' };
 }
 
-function cacheVerdict(textHash: string, blocked: boolean): void {
+function cacheVerdict(textHash: string, blocked: boolean, forbiddenWords: string[] = []): void {
   verdictCache.set(textHash, {
     blocked,
+    forbiddenWords: uniqueWords(forbiddenWords),
     expiresAt: Date.now() + VERDICT_CACHE_TTL_MS,
   });
   if (verdictCache.size > 100) {
@@ -120,14 +147,14 @@ function cacheVerdict(textHash: string, blocked: boolean): void {
   }
 }
 
-async function requestProfanityVerdict(normalized: string, textHash: string): Promise<boolean | null> {
+async function requestProfanityVerdict(normalized: string, textHash: string): Promise<ProfanityVerdict> {
   const cached = getCachedVerdict(textHash);
-  if (cached !== null) return cached;
+  if (cached) return cached;
   const existing = inflightChecks.get(textHash);
   if (existing) return existing;
-  if (!clientChecksAllowed()) return null;
+  if (!clientChecksAllowed()) return { kind: 'skip' };
 
-  const request = (async (): Promise<boolean | null> => {
+  const request = (async (): Promise<ProfanityVerdict> => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
     try {
@@ -152,25 +179,29 @@ async function requestProfanityVerdict(normalized: string, textHash: string): Pr
                 : SERVICE_BACKOFF_MS)
             : SERVICE_BACKOFF_MS,
         );
-        return null;
+        return { kind: 'skip' };
       }
 
       const data = await response.json() as {
         status?: string;
         forbidden_words?: unknown;
       };
-      const forbiddenWords = Array.isArray(data.forbidden_words)
-        ? data.forbidden_words.map((word) => String(word || '').trim()).filter(Boolean)
-        : [];
+      const forbiddenWords = uniqueWords(
+        Array.isArray(data.forbidden_words)
+          ? data.forbidden_words.map((word) => String(word || '').trim())
+          : [],
+      );
       const status = String(data.status || '').toLowerCase();
-      if (status !== 'ok' && status !== 'forbidden') return null;
+      if (status !== 'ok' && status !== 'forbidden') return { kind: 'skip' };
 
       const blocked = status === 'forbidden' || forbiddenWords.length > 0;
-      cacheVerdict(textHash, blocked);
-      return blocked;
+      cacheVerdict(textHash, blocked, forbiddenWords);
+      return blocked
+        ? { kind: 'blocked', forbiddenWords }
+        : { kind: 'pass' };
     } catch {
       backoffClientChecks(NETWORK_BACKOFF_MS);
-      return null;
+      return { kind: 'skip' };
     } finally {
       window.clearTimeout(timer);
     }
@@ -213,11 +244,11 @@ export async function checkTextProfanity(
 
   try {
     const textHash = await sha256Hex(normalized);
-    const blocked = await requestProfanityVerdict(normalized, textHash);
-    // null 表示配额不足、限流、超时或响应异常：不签密令，后端自动兜底。
-    if (blocked === null) return { ok: true };
-    if (blocked) {
-      return { ok: false, error: '消息包含敏感词，请修改后发送' };
+    const verdict = await requestProfanityVerdict(normalized, textHash);
+    // skip 表示配额不足、限流、超时或响应异常：不签密令，后端自动兜底。
+    if (verdict.kind === 'skip') return { ok: true };
+    if (verdict.kind === 'blocked') {
+      return { ok: false, error: formatBlockedError(verdict.forbiddenWords) };
     }
 
     const userId = String(options.userId || getClientId() || '').trim();
