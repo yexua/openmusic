@@ -285,6 +285,8 @@ function snapshotRoomForStorage(room) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    memberSeekEnabled: Boolean(room.memberSeekEnabled),
+    memberPauseEnabled: Boolean(room.memberPauseEnabled),
     systemMediaPlayBound: room.systemMediaPlayBound !== false,
     systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
@@ -340,6 +342,8 @@ function restoreRoomFromStorage(data) {
   room.songRequestCooldownSec = normalizeSongRequestCooldownSec(data.songRequestCooldownSec);
   room.queueMaxLength = normalizeQueueMaxLength(data.queueMaxLength);
   room.memberJumpEnabled = Boolean(data.memberJumpEnabled);
+  room.memberSeekEnabled = Boolean(data.memberSeekEnabled);
+  room.memberPauseEnabled = Boolean(data.memberPauseEnabled);
   room.systemMediaPlayBound = data.systemMediaPlayBound !== false;
   room.systemMediaSkipBound = data.systemMediaSkipBound !== false;
   room.dislikeSkipMode = normalizeDislikeSkipMode(data.dislikeSkipMode);
@@ -511,6 +515,10 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     songRequestCooldownSec: 0,
     queueMaxLength: DEFAULT_QUEUE_MAX_LENGTH,
     memberJumpEnabled: false,
+    /** 是否允许成员拖动进度条（默认关闭，房主/管理员始终可） */
+    memberSeekEnabled: false,
+    /** 是否允许成员暂停/播放（默认关闭，房主/管理员始终可） */
+    memberPauseEnabled: false,
     systemMediaPlayBound: true,
     systemMediaSkipBound: true,
     dislikeSkipMode: DEFAULT_DISLIKE_SKIP_MODE,
@@ -1709,6 +1717,12 @@ export function setSongRequestEnabled(roomId, actorId, options = {}, connectionI
   if (options.memberJumpEnabled !== undefined) {
     room.memberJumpEnabled = Boolean(options.memberJumpEnabled);
   }
+  if (options.memberSeekEnabled !== undefined) {
+    room.memberSeekEnabled = Boolean(options.memberSeekEnabled);
+  }
+  if (options.memberPauseEnabled !== undefined) {
+    room.memberPauseEnabled = Boolean(options.memberPauseEnabled);
+  }
   if (options.systemMediaPlayBound !== undefined) {
     room.systemMediaPlayBound = Boolean(options.systemMediaPlayBound);
   }
@@ -2003,6 +2017,20 @@ function isControllerConnection(room, userId, connectionId = null) {
   if (!canControlPlayback(room, userId)) return false;
   if (!isActorConnection(room, userId, connectionId)) return false;
   return true;
+}
+
+/** 房主/管理员始终可；开启 memberSeekEnabled 后普通成员也可调进度 */
+function canSeekPlayback(room, userId, connectionId = null) {
+  if (isControllerConnection(room, userId, connectionId)) return true;
+  if (!room.memberSeekEnabled) return false;
+  return isActorConnection(room, userId, connectionId);
+}
+
+/** 房主/管理员始终可；开启 memberPauseEnabled 后普通成员也可暂停/播放 */
+function canPausePlayback(room, userId, connectionId = null) {
+  if (isControllerConnection(room, userId, connectionId)) return true;
+  if (!room.memberPauseEnabled) return false;
+  return isActorConnection(room, userId, connectionId);
 }
 
 function songIdentity(source, id) {
@@ -2592,7 +2620,7 @@ export async function advancePlaybackIfEnded(roomId, options = {}) {
 export function setPlaying(roomId, socketId, isPlaying, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room || !room.current) return null;
-  if (!isControllerConnection(room, socketId, connectionId)) return null;
+  if (!canPausePlayback(room, socketId, connectionId)) return null;
 
   room.isPlaying = isPlaying;
   if (isPlaying) {
@@ -2613,7 +2641,7 @@ export function setPlaying(roomId, socketId, isPlaying, connectionId = null) {
 export function seekTo(roomId, socketId, time, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room || !room.current) return null;
-  if (!isControllerConnection(room, socketId, connectionId)) return null;
+  if (!canSeekPlayback(room, socketId, connectionId)) return null;
 
   const nextTime = Number(time);
   if (!Number.isFinite(nextTime) || nextTime < 0) return null;
@@ -3370,6 +3398,8 @@ function serializeRoom(room, options = {}) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    memberSeekEnabled: Boolean(room.memberSeekEnabled),
+    memberPauseEnabled: Boolean(room.memberPauseEnabled),
     systemMediaPlayBound: room.systemMediaPlayBound !== false,
     systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),
@@ -3422,6 +3452,8 @@ export function prepareRoomBroadcast(roomId) {
     songRequestCooldownSec: normalizeSongRequestCooldownSec(room.songRequestCooldownSec),
     queueMaxLength: normalizeQueueMaxLength(room.queueMaxLength),
     memberJumpEnabled: Boolean(room.memberJumpEnabled),
+    memberSeekEnabled: Boolean(room.memberSeekEnabled),
+    memberPauseEnabled: Boolean(room.memberPauseEnabled),
     systemMediaPlayBound: room.systemMediaPlayBound !== false,
     systemMediaSkipBound: room.systemMediaSkipBound !== false,
     dislikeSkipMode: normalizeDislikeSkipMode(room.dislikeSkipMode),

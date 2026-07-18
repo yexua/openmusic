@@ -19,6 +19,8 @@ type SettingsTab = 'fm' | 'member' | 'announcement' | 'chat' | 'songRequest';
 export interface SongRequestSettings {
   enabled: boolean;
   memberJumpEnabled: boolean;
+  memberSeekEnabled: boolean;
+  memberPauseEnabled: boolean;
   systemMediaPlayBound: boolean;
   systemMediaSkipBound: boolean;
   dislikeSkipMode: DislikeSkipMode;
@@ -35,6 +37,8 @@ export interface SongRequestSettings {
 function songRequestEqual(a: SongRequestSettings, b: SongRequestSettings) {
   return a.enabled === b.enabled
     && a.memberJumpEnabled === b.memberJumpEnabled
+    && a.memberSeekEnabled === b.memberSeekEnabled
+    && a.memberPauseEnabled === b.memberPauseEnabled
     && a.systemMediaPlayBound === b.systemMediaPlayBound
     && a.systemMediaSkipBound === b.systemMediaSkipBound
     && a.dislikeSkipMode === b.dislikeSkipMode
@@ -284,6 +288,8 @@ export default function RoomSettingsModal({
     || draftAnnouncementText.trim() !== announcementText.trim();
   const songRequestDirty = draftSongRequest.enabled !== songRequest.enabled
     || draftSongRequest.memberJumpEnabled !== songRequest.memberJumpEnabled
+    || draftSongRequest.memberSeekEnabled !== songRequest.memberSeekEnabled
+    || draftSongRequest.memberPauseEnabled !== songRequest.memberPauseEnabled
     || draftSongRequest.systemMediaPlayBound !== songRequest.systemMediaPlayBound
     || draftSongRequest.systemMediaSkipBound !== songRequest.systemMediaSkipBound
     || draftSongRequest.dislikeSkipMode !== songRequest.dislikeSkipMode
@@ -485,6 +491,22 @@ export default function RoomSettingsModal({
                   onChange={(memberJumpEnabled) => setDraftSongRequest((prev) => ({ ...prev, memberJumpEnabled }))}
                   label="允许成员插队"
                   description="开启后成员可对自己的点歌插队；房主与管理员始终可插队"
+                />
+
+                <Toggle
+                  checked={draftSongRequest.memberSeekEnabled}
+                  disabled={songRequestSaving}
+                  onChange={(memberSeekEnabled) => setDraftSongRequest((prev) => ({ ...prev, memberSeekEnabled }))}
+                  label="允许成员拖动进度条"
+                  description="默认关闭；开启后成员可调节播放进度；房主与管理员始终可操作"
+                />
+
+                <Toggle
+                  checked={draftSongRequest.memberPauseEnabled}
+                  disabled={songRequestSaving}
+                  onChange={(memberPauseEnabled) => setDraftSongRequest((prev) => ({ ...prev, memberPauseEnabled }))}
+                  label="允许成员暂停/播放"
+                  description="默认关闭；开启后成员可暂停或继续播放；房主与管理员始终可操作"
                 />
 
                 <Toggle
