@@ -200,13 +200,20 @@ export async function fetchMetingApi(query, options = {}, timeoutMs = 10000) {
   const isSearch = String(query?.type || '') === 'search';
   const isUrl = String(query?.type || '') === 'url';
   let lastError = null;
+  let notFoundResponse = null;
   let emptySearchResponse = null;
   let emptyUrlResponse = null;
   for (const upstream of candidates) {
     try {
       const response = await requestUpstream(upstream, query, options, timeoutMs);
-      // 404 视为正常的“歌曲不存在”业务结果；其余 4xx/5xx 视为上游故障并触发切换
-      if (response.status >= 400 && response.status !== 404) {
+      // 404 只表示当前上游没有这首歌，不应阻止后续上游继续兜底。
+      // 它仍是健康的业务响应；只有全部上游都未命中时才返回最后的 404。
+      if (response.status === 404) {
+        markSuccess(upstream);
+        notFoundResponse = response;
+        continue;
+      }
+      if (response.status >= 400) {
         markFailure(upstream, `上游返回 ${response.status}`);
         lastError = new Error(`Meting 上游返回 ${response.status}（${upstream.base}）`);
         continue;
@@ -253,6 +260,7 @@ export async function fetchMetingApi(query, options = {}, timeoutMs = 10000) {
   }
   if (emptySearchResponse) return emptySearchResponse;
   if (emptyUrlResponse) return emptyUrlResponse;
+  if (notFoundResponse) return notFoundResponse;
   throw lastError || new Error('所有 Meting 上游均不可用');
 }
 
