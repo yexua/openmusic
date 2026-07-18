@@ -588,12 +588,13 @@ app.get('/api/app-version', (_req, res) => {
         version: String(data.version || data.buildId || ''),
         notes: Array.isArray(data.notes) ? data.notes : [],
         builtAt: data.builtAt || null,
+        forcePrompt: data.forcePrompt === true,
       });
     }
   } catch (err) {
     console.error('app-version read error:', err?.message || err);
   }
-  return res.json({ buildId: 'dev', version: 'dev', notes: [], builtAt: null });
+  return res.json({ buildId: 'dev', version: 'dev', notes: [], builtAt: null, forcePrompt: false });
 });
 
 app.get('/api/music/toplist/netease', async (req, res) => {

@@ -128,16 +128,24 @@ npm start
 
 ### 发版与更新提示
 
-1. 编辑根目录 [`release-notes.json`](../release-notes.json)，或执行 `npm run package:build` 时按提示逐行输入更新内容。
-2. 构建会生成 `client/dist/version.json`（`buildId` + `notes`），并注入到前端。
-3. 用户打开站点后会轮询 `GET /api/app-version`（走 API、禁止缓存）；发现新版本弹窗提示「立即更新」强制刷新。
-4. **EdgeOne / CDN**：请对 `/api/*` 动态回源；`index.html` 不要长期缓存。资源已带 content hash，发版后旧 JS 不会被当成新文件。发版后建议在 EdgeOne 刷新一次 HTML。
+1. 编辑根目录 [`release-notes.json`](../release-notes.json)，或执行 `npm run package:build` 时按提示录入更新说明，并选择是否**强制提示**。
+2. **`forcePrompt`**：`true` = 紧急更新，弹窗强制提示；`false`（默认）= 静默发版，不弹窗、不显示角标。
+3. 构建会生成 `client/dist/version.json`（`buildId` + `notes` + `forcePrompt`）。
+4. 用户轮询 `GET /api/app-version`；仅 `forcePrompt=true` 时弹窗「立即更新」硬刷新。
+5. **EdgeOne / CDN**：请对 `/api/*` 动态回源；`index.html` 不要长期缓存。资源已带 content hash。发版后建议在 EdgeOne 刷新一次 HTML。
 
 也可非交互打包：
 
 ```bash
-# Windows PowerShell
-$env:RELEASE_NOTES="修复播放同步;聊天撤回优化"; npm run package:build
+# Windows PowerShell — 普通发版（不弹窗）
+$env:RELEASE_NOTES="修复播放同步;聊天撤回优化"
+$env:RELEASE_FORCE_PROMPT="0"
+npm run package:build
+
+# 紧急更新（强制弹窗）
+$env:RELEASE_NOTES="重要安全修复"
+$env:RELEASE_FORCE_PROMPT="1"
+npm run package:build
 ```
 
 ### 宝塔 / PM2

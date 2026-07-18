@@ -2,6 +2,8 @@ export type AppVersionInfo = {
   buildId: string;
   version?: string;
   notes: string[];
+  /** 紧急更新才弹窗；false 时静默发版、不提示 */
+  forcePrompt: boolean;
   builtAt?: string | null;
 };
 
@@ -61,6 +63,7 @@ export async function fetchRemoteAppVersion(signal?: AbortSignal): Promise<AppVe
     version: data.version ? String(data.version) : buildId,
     notes,
     builtAt: data.builtAt ?? null,
+    forcePrompt: data.forcePrompt === true,
   };
 }
 

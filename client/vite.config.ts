@@ -39,6 +39,7 @@ function appVersionPlugin(): Plugin {
       const outDir = outputOptions.dir || path.join(__dirname, 'dist');
       const filePath = writeVersionJson(outDir, appVersionMeta);
       console.log(`[app-version] ${appVersionMeta.buildId} → ${filePath}`);
+      console.log(`  forcePrompt: ${appVersionMeta.forcePrompt ? 'yes' : 'no'}`);
       if (appVersionMeta.notes.length) {
         for (const note of appVersionMeta.notes) {
           console.log(`  - ${note}`);

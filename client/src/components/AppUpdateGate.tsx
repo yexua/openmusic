@@ -33,6 +33,8 @@ export default function AppUpdateGate() {
         const info = await fetchRemoteAppVersion(ac.signal);
         if (cancelled || !info) return;
         if (info.buildId === LOCAL_APP_BUILD_ID || info.buildId === 'dev') return;
+        // 非紧急发版：不弹窗、不显示角标
+        if (!info.forcePrompt) return;
         // 已点过「稍后/立即更新」的版本：房间回首页也不再弹、不显示角标
         if (isUpdateSuppressedForBuild(info.buildId)) return;
         setRemote(info);
@@ -67,6 +69,7 @@ export default function AppUpdateGate() {
   }, [location.pathname]);
 
   if (!remote || remote.buildId === LOCAL_APP_BUILD_ID) return null;
+  if (!remote.forcePrompt) return null;
   if (isUpdateSuppressedForBuild(remote.buildId)) return null;
 
   const notes = (remote.notes.length > 0 ? remote.notes : ['体验优化与问题修复']).slice(0, 4);

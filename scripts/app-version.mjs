@@ -7,7 +7,7 @@ const ROOT = path.join(__dirname, '..');
 const NOTES_PATH = path.join(ROOT, 'release-notes.json');
 
 /**
- * @typedef {{ buildId: string, version: string, notes: string[], builtAt: string }} AppVersionMeta
+ * @typedef {{ buildId: string, version: string, notes: string[], builtAt: string, forcePrompt: boolean }} AppVersionMeta
  */
 
 function pad(n) {
@@ -22,29 +22,48 @@ export function createBuildId(date = new Date()) {
   );
 }
 
+function parseForcePrompt(raw) {
+  if (raw === true || raw === 1) return true;
+  if (raw === false || raw === 0) return false;
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return false;
+  return s === '1' || s === 'true' || s === 'yes' || s === 'y';
+}
+
 export function readReleaseNotesFile() {
   try {
     const raw = JSON.parse(fs.readFileSync(NOTES_PATH, 'utf8'));
     const notes = Array.isArray(raw?.notes)
       ? raw.notes.map((item) => String(item || '').trim()).filter(Boolean)
       : [];
-    return { notes, path: NOTES_PATH };
+    return {
+      notes,
+      forcePrompt: parseForcePrompt(raw?.forcePrompt),
+      path: NOTES_PATH,
+    };
   } catch {
-    return { notes: [], path: NOTES_PATH };
+    return { notes: [], forcePrompt: false, path: NOTES_PATH };
   }
 }
 
-export function writeReleaseNotesFile(notes) {
+/**
+ * @param {string[]} notes
+ * @param {{ forcePrompt?: boolean }} [options]
+ */
+export function writeReleaseNotesFile(notes, options = {}) {
   const cleaned = (Array.isArray(notes) ? notes : [])
     .map((item) => String(item || '').trim())
     .filter(Boolean)
     .slice(0, 20);
+  const forcePrompt = options.forcePrompt !== undefined
+    ? parseForcePrompt(options.forcePrompt)
+    : readReleaseNotesFile().forcePrompt;
   fs.writeFileSync(
     NOTES_PATH,
-    `${JSON.stringify({ notes: cleaned }, null, 2)}\n`,
+    `${JSON.stringify({ notes: cleaned, forcePrompt }, null, 2)}\n`,
     'utf8',
   );
-  return cleaned;
+  return { notes: cleaned, forcePrompt };
 }
 
 export function parseNotesFromEnv(raw) {
@@ -56,20 +75,24 @@ export function parseNotesFromEnv(raw) {
 }
 
 /**
- * @param {{ notes?: string[] }} [options]
+ * @param {{ notes?: string[], forcePrompt?: boolean }} [options]
  * @returns {AppVersionMeta}
  */
 export function buildAppVersionMeta(options = {}) {
-  const fromFile = readReleaseNotesFile().notes;
+  const fromFile = readReleaseNotesFile();
   const notes = (options.notes && options.notes.length > 0)
     ? options.notes
-    : fromFile;
+    : fromFile.notes;
+  const forcePrompt = options.forcePrompt !== undefined
+    ? parseForcePrompt(options.forcePrompt)
+    : fromFile.forcePrompt;
   const builtAt = new Date().toISOString();
   const buildId = createBuildId(new Date(builtAt));
   return {
     buildId,
     version: buildId,
     notes: notes.length > 0 ? notes : ['功能与体验优化'],
+    forcePrompt,
     builtAt,
   };
 }
@@ -81,4 +104,4 @@ export function writeVersionJson(outDir, meta) {
   return filePath;
 }
 
-export { NOTES_PATH, ROOT };
+export { NOTES_PATH, ROOT, parseForcePrompt };

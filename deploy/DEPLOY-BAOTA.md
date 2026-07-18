@@ -11,7 +11,7 @@ npm run package:build # 录入更新说明并打包（推荐）
 # npm run build         # → client/dist + version.json
 ```
 
-发版后若使用 **EdgeOne**：`/api/*` 动态回源；刷新 HTML 缓存。用户会收到站内「发现新版本」提示并强制刷新。
+发版后若使用 **EdgeOne**：`/api/*` 动态回源；刷新 HTML 缓存。仅当 `release-notes.json` 中 `forcePrompt: true` 时，用户会收到站内「发现新版本」弹窗；非紧急可设为 `false` 静默发版。
 
 需要上传的文件/目录：
 

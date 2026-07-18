@@ -4,6 +4,7 @@ import path from 'path';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
 import {
+  parseForcePrompt,
   parseNotesFromEnv,
   readReleaseNotesFile,
   writeReleaseNotesFile,
@@ -49,49 +50,79 @@ function askLine(rl, question) {
   });
 }
 
+/**
+ * @param {import('readline').Interface} rl
+ * @param {boolean} current
+ */
+async function askForcePrompt(rl, current) {
+  const hint = current ? 'Y/n' : 'y/N';
+  const answer = await askLine(rl, `是否强制提示用户更新？(${hint}) `);
+  if (!answer) return current;
+  return parseForcePrompt(answer);
+}
+
 /** 打包前录入更新说明，写入 release-notes.json 供构建注入 */
 async function collectReleaseNotes() {
+  const existing = readReleaseNotesFile();
+  const envForce = process.env.RELEASE_FORCE_PROMPT;
+  const forceFromEnv = envForce !== undefined && envForce !== ''
+    ? parseForcePrompt(envForce)
+    : null;
+
   if (process.env.RELEASE_NOTES) {
     const notes = parseNotesFromEnv(process.env.RELEASE_NOTES);
-    writeReleaseNotesFile(notes);
-    return notes;
+    const forcePrompt = forceFromEnv ?? existing.forcePrompt;
+    const saved = writeReleaseNotesFile(notes, { forcePrompt });
+    console.log(`>>> 强制提示: ${saved.forcePrompt ? '是' : '否'}`);
+    return saved;
   }
-
-  const existing = readReleaseNotesFile().notes;
 
   if (!isInteractive() || process.env.RELEASE_NOTES_SKIP === '1') {
     console.log('>>> 非交互环境，使用现有 release-notes.json');
-    return existing.length ? existing : writeReleaseNotesFile(['功能与体验优化']);
+    const notes = existing.notes.length ? existing.notes : ['功能与体验优化'];
+    const forcePrompt = forceFromEnv ?? existing.forcePrompt;
+    const saved = writeReleaseNotesFile(notes, { forcePrompt });
+    console.log(`>>> 强制提示: ${saved.forcePrompt ? '是' : '否'}`);
+    return saved;
   }
 
   console.log('');
-  console.log('>>> 本次更新说明（用户刷新提示会展示）');
-  if (existing.length) {
+  console.log('>>> 本次更新说明（强制提示时用户会看到）');
+  if (existing.notes.length) {
     console.log('当前 release-notes.json：');
-    existing.forEach((note, index) => console.log(`  ${index + 1}. ${note}`));
+    existing.notes.forEach((note, index) => console.log(`  ${index + 1}. ${note}`));
+    console.log(`  强制提示: ${existing.forcePrompt ? '是' : '否'}`);
   }
   console.log('每行一条，空行结束；直接回车保留现有内容。');
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const notes = [];
+  let forcePrompt = forceFromEnv ?? existing.forcePrompt;
   try {
     for (let i = 0; i < 12; i += 1) {
       const line = await askLine(rl, `  ${i + 1}. `);
       if (!line) break;
       notes.push(line);
     }
+    if (forceFromEnv === null) {
+      forcePrompt = await askForcePrompt(rl, existing.forcePrompt);
+    }
   } finally {
     rl.close();
   }
 
+  const finalNotes = notes.length > 0
+    ? notes
+    : (existing.notes.length ? existing.notes : ['功能与体验优化']);
   if (notes.length === 0) {
     console.log('>>> 未输入新说明，保留现有内容');
-    return existing.length ? existing : writeReleaseNotesFile(['功能与体验优化']);
+  } else {
+    console.log(`>>> 已写入 ${notes.length} 条更新说明`);
   }
 
-  writeReleaseNotesFile(notes);
-  console.log(`>>> 已写入 ${notes.length} 条更新说明`);
-  return notes;
+  const saved = writeReleaseNotesFile(finalNotes, { forcePrompt });
+  console.log(`>>> 强制提示: ${saved.forcePrompt ? '是' : '否（静默发版，不弹窗）'}`);
+  return saved;
 }
 
 await collectReleaseNotes();
