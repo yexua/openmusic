@@ -235,6 +235,12 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
   useEffect(() => () => clearSendProgressTimer(), [clearSendProgressTimer]);
 
   useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
     if (!showEmoji) setEmojiPickerTab('faces');
   }, [showEmoji]);
 
