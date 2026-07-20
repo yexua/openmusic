@@ -1127,10 +1127,15 @@ export function listRooms() {
     .filter(isRoomVisibleInLobby)
     .map(serializeRoomSummary)
     .sort((a, b) => {
-      // 大厅：人数多的靠前，无密码上锁一律最后
-      const aLocked = a.isLocked && !a.hasPassword ? 1 : 0;
-      const bLocked = b.isLocked && !b.hasPassword ? 1 : 0;
-      if (aLocked !== bLocked) return aLocked - bLocked;
+      // 大厅：开放播放 → … → 密码锁 → 无密码硬锁（不可进）最后
+      const typeRank = (room) => {
+        if (room.isLocked && !room.hasPassword) return 4;
+        const locked = (room.isLocked || room.hasPassword) ? 1 : 0;
+        const paused = room.isPlaying ? 0 : 1;
+        return locked * 2 + paused;
+      };
+      const typeDiff = typeRank(a) - typeRank(b);
+      if (typeDiff !== 0) return typeDiff;
       return b.userCount - a.userCount || b.createdAt - a.createdAt;
     });
   cachedListRoomsAt = now;
