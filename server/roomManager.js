@@ -544,7 +544,7 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
   };
 }
 
-const MAX_ADMINS = 3;
+const MAX_ADMINS = 5;
 
 function getNextOwnerId(room) {
   return Array.from(room.users.values())
@@ -1515,7 +1515,7 @@ export function setRoomAdmin(roomId, actorId, targetUserId, admin = true, connec
     if (isAppointedAdmin(room, targetId)) {
       return { room: serializeRoom(room) };
     }
-    if (appointedCount >= MAX_ADMINS) return { error: '管理员最多 3 人' };
+    if (appointedCount >= MAX_ADMINS) return { error: `管理员最多 ${MAX_ADMINS} 人` };
     admins.add(targetId);
     auto.delete(targetId);
     if (room.memberTiers?.has(targetId)) {

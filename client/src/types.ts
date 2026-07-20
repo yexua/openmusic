@@ -143,7 +143,7 @@ export interface RoomState {
   ownerId: string | null;
   /** 房间初创房主（永久身份，唯一显示「房主」） */
   creatorId?: string | null;
-  /** 管理员（最多 3 人，仅房主指定的正式管理） */
+  /** 管理员（最多 5 人，仅房主指定的正式管理） */
   adminIds?: string[];
   /** 临时自动提升管理（仅播放权，不含管理敏感字段） */
   autoPromotedAdminIds?: string[];
