@@ -23,21 +23,19 @@
 
 ## 📸 项目截图
 
+<p align="center">
+  <a href="docs/screenshots/home.png">
+    <img src="docs/screenshots/home.png" alt="首页大厅" width="78%" />
+  </a>
+  <br/>
+  <sub><b>首页大厅</b></sub>
+</p>
+
 <table>
   <tr>
     <td align="center" width="50%">
-      <a href="docs/screenshots/home.png"><img src="docs/screenshots/home.png" alt="房间大厅" width="100%" /></a>
-      <br/><sub><b>房间大厅</b></sub>
-    </td>
-    <td align="center" width="50%">
       <a href="docs/screenshots/room.png"><img src="docs/screenshots/room.png" alt="房间点歌" width="100%" /></a>
       <br/><sub><b>房间点歌</b></sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <a href="docs/screenshots/lyrics.png"><img src="docs/screenshots/lyrics.png" alt="歌词播放" width="100%" /></a>
-      <br/><sub><b>歌词播放</b></sub>
     </td>
     <td align="center" width="50%">
       <a href="docs/screenshots/admin.png"><img src="docs/screenshots/admin.png" alt="管理后台" width="100%" /></a>
