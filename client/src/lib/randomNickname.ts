@@ -132,15 +132,8 @@ function pick<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function randomTwoDigits() {
-  return String(Math.floor(Math.random() * 100)).padStart(2, '0');
-}
-
-/** 前缀 × 00-99，预置上万种组合 */
-export const RANDOM_NICKNAME_POOL = PREFIXES.flatMap((prefix) =>
-  Array.from({ length: 100 }, (_, i) => `${prefix}${String(i).padStart(2, '0')}`),
-);
+export const RANDOM_NICKNAME_POOL = [...PREFIXES];
 
 export function createRandomNickname() {
-  return `${pick(PREFIXES)}${randomTwoDigits()}`;
+  return pick(PREFIXES);
 }

@@ -50,6 +50,15 @@ export const CHAT_PAGE_LIMIT = 50;
 const MAX_RANDOM_HISTORY = 200;
 const MAX_RANDOM_PREFETCH_ATTEMPTS = 20;
 
+/** 播放顺序：顺序 / 乱序 / 单曲循环 / 列表循环 */
+export const PLAY_MODES = ['order', 'shuffle', 'loop-one', 'loop-all'];
+export const DEFAULT_PLAY_MODE = 'order';
+
+export function normalizePlayMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return PLAY_MODES.includes(mode) ? mode : DEFAULT_PLAY_MODE;
+}
+
 /** @type {((roomId: string) => void) | null} */
 let onRoomPrefetchReady = null;
 /** @type {((roomId: string) => void) | null} */
@@ -273,6 +282,7 @@ function snapshotRoomForStorage(room) {
     audioQuality: room.audioQuality ?? { netease: 'hires', tencent: 'lossless' },
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
@@ -332,6 +342,7 @@ function restoreRoomFromStorage(data) {
   room.neteaseFmMode = normalizeFmMode(data.neteaseFmMode);
   const fmModeBeforeOff = normalizeFmMode(data.fmModeBeforeOff);
   room.fmModeBeforeOff = fmModeBeforeOff === FM_MODE_OFF ? DEFAULT_FM_MODE : fmModeBeforeOff;
+  room.playMode = normalizePlayMode(data.playMode);
   room.announcementEnabled = Boolean(data.announcementEnabled);
   room.announcementText = String(data.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH);
   room.chatHistoryVisibleOnJoin = Boolean(data.chatHistoryVisibleOnJoin);
@@ -514,6 +525,7 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     },
     neteaseFmMode: DEFAULT_FM_MODE,
     fmModeBeforeOff: DEFAULT_FM_MODE,
+    playMode: DEFAULT_PLAY_MODE,
     announcementEnabled: false,
     announcementText: '',
     /** 进房是否可查看历史聊天；默认关闭（仅看进房后的消息） */
@@ -1579,6 +1591,22 @@ export function setRoomAudioQuality(roomId, actorId, quality = {}, connectionId 
   return { room: serializeRoom(room) };
 }
 
+export function setRoomPlayMode(roomId, actorId, mode, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isControllerConnection(room, actorId, connectionId)) {
+    return { error: '仅房主或管理员可切换播放顺序' };
+  }
+
+  const nextMode = normalizePlayMode(mode);
+  if (normalizePlayMode(room.playMode) === nextMode) {
+    return { room: serializeRoom(room) };
+  }
+  room.playMode = nextMode;
+  persistRoom(room);
+  return { room: serializeRoom(room) };
+}
+
 export function setRoomMemberTier(roomId, actorId, targetUserId, payload = {}, connectionId = null) {
   const room = rooms.get(roomId);
   if (!room) return { error: '房间不存在' };
@@ -2410,7 +2438,7 @@ export async function toggleCurrentDislike(roomId, userId) {
   let skipped = false;
   let systemMessage = null;
   if (dislikeCount >= threshold) {
-    await playNext(room, { allowFetchRandom: false });
+    await playNext(room, { allowFetchRandom: false, forceAdvance: true });
     skipped = true;
     systemMessage = appendSystemChatMessage(
       room,
@@ -2604,13 +2632,61 @@ function setCurrentSong(room, song) {
   if (room.queue.length === 0) void ensureNextRandom(room);
 }
 
-async function playNextUnlocked(room, options = {}) {
-  const { allowFetchRandom = false } = options;
+function restartCurrentSong(room) {
+  if (!room.current) return false;
   room.skipRequests = [];
+  room.current.dislikedByIds = [];
+  room.currentTime = 0;
+  room.startedAt = Date.now();
+  room.isPlaying = true;
+  room.randomLoading = false;
+  bumpPlaybackState(room);
+  return true;
+}
+
+function takeNextFromQueue(room) {
+  if (!room.queue.length) return null;
+  if (normalizePlayMode(room.playMode) === 'shuffle') {
+    const idx = Math.floor(Math.random() * room.queue.length);
+    return room.queue.splice(idx, 1)[0] || null;
+  }
+  return room.queue.shift() || null;
+}
+
+function recycleFinishedSongToQueue(room, finishedSong) {
+  if (!finishedSong || normalizePlayMode(room.playMode) !== 'loop-all') return;
+  const recycled = serializeQueueItemForRoom({
+    ...finishedSong,
+    queueId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    dislikedByIds: [],
+    likedByIds: Array.isArray(finishedSong.likedByIds) ? [...finishedSong.likedByIds] : [],
+    ownerPriority: 0,
+    priorityBy: '',
+    manualOrder: undefined,
+    addedAt: Date.now(),
+  });
+  if (!recycled) return;
+  room.queue.push(recycled);
+}
+
+async function playNextUnlocked(room, options = {}) {
+  const { allowFetchRandom = false, finishedSong = null, forceAdvance = false } = options;
+  room.skipRequests = [];
+
+  // 单曲循环：自然播完时重播当前曲；手动切歌 forceAdvance 仍前进
+  if (
+    !forceAdvance
+    && normalizePlayMode(room.playMode) === 'loop-one'
+    && (finishedSong || room.current)
+  ) {
+    if (restartCurrentSong(room)) return;
+  }
+
+  recycleFinishedSongToQueue(room, finishedSong || room.current);
 
   if (room.queue.length > 0) {
     clearNextRandom(room);
-    setCurrentSong(room, room.queue.shift());
+    setCurrentSong(room, takeNextFromQueue(room));
     return;
   }
 
@@ -2621,10 +2697,6 @@ async function playNextUnlocked(room, options = {}) {
 
   let random = room.nextRandom;
   room.nextRandom = null;
-
-  // if (random && room.randomPlayedKeys.has(songIdentity(random.source, random.id))) {
-  //   random = null;
-  // }
 
   const shouldFetchRandom = !random && (allowFetchRandom || room.queue.length === 0);
   if (shouldFetchRandom) {
@@ -2642,7 +2714,7 @@ async function playNextUnlocked(room, options = {}) {
       if (pending && !room.nextRandom) room.nextRandom = pending;
       notifyRoomPrefetchReady(room);
     }
-    setCurrentSong(room, room.queue.shift());
+    setCurrentSong(room, takeNextFromQueue(room));
     return;
   }
 
@@ -2749,7 +2821,7 @@ export async function skipSong(roomId, socketId, connectionId = null, options = 
   const user = room.users.get(socketId);
   const songTitle = room.current ? formatSongTitle(room.current) : '';
   const reason = String(options.reason || 'manual');
-  await playNext(room, { allowFetchRandom: false });
+  await playNext(room, { allowFetchRandom: false, forceAdvance: true });
 
   let systemMessage = null;
   if (songTitle) {
@@ -2776,7 +2848,8 @@ export async function finishCurrentSong(roomId, socketId, connectionId, queueId)
   await withPlaybackLock(room, async () => {
     if (!room.current) return;
     if (queueId && room.current.queueId !== queueId) return;
-    await playNextUnlocked(room, { allowFetchRandom: false });
+    const finished = room.current;
+    await playNextUnlocked(room, { allowFetchRandom: false, finishedSong: finished });
   });
   persistRoom(room);
   return { room: serializeRoom(room) };
@@ -2803,7 +2876,7 @@ export async function advancePlaybackIfEnded(roomId, options = {}) {
     if (!force && (lockedDurationSec <= 0 || getPlaybackTime(room) < lockedDurationSec + AUTO_ADVANCE_GRACE_SEC)) {
       return null;
     }
-    await playNextUnlocked(room, { allowFetchRandom: false });
+    await playNextUnlocked(room, { allowFetchRandom: false, finishedSong: room.current });
     persistRoom(room);
     return serializeRoom(room);
   });
@@ -3035,7 +3108,7 @@ export async function approveSkip(roomId, socketId, requestId, connectionId = nu
 
   clearSkipRequestExpiryTimer(roomId, requestId);
   room.skipRequests.splice(reqIdx, 1);
-  await playNext(room, { allowFetchRandom: false });
+  await playNext(room, { allowFetchRandom: false, forceAdvance: true });
 
   persistRoom(room);
   return { room: serializeRoom(room) };
@@ -3588,6 +3661,7 @@ function serializeRoom(room, options = {}) {
     audioQuality: normalizeRoomAudioQuality(room.audioQuality),
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
@@ -3643,6 +3717,7 @@ export function prepareRoomBroadcast(roomId) {
     audioQuality: normalizeRoomAudioQuality(room.audioQuality),
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),

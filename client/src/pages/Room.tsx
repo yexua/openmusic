@@ -39,6 +39,7 @@ import SearchFilterSelect from '../components/SearchFilterSelect';
 import PlaylistChannelFilter from '../components/PlaylistChannelFilter';
 import PageNumberPagination from '../components/PageNumberPagination';
 import SearchSkeleton, { RESULT_BODY_HEIGHT } from '../components/SearchSkeleton';
+import SongResultList from '../components/SongResultList';
 import {
   getStoredSongResultPageSize,
   setStoredSongResultPageSize,
@@ -110,7 +111,6 @@ const ChatPanel = lazy(() => import('../components/ChatPanel'));
 const PureModeChatDock = lazy(() => import('../components/PureModeChatDock'));
 const QueuePanel = lazy(() => import('../components/QueuePanel'));
 const HotSongPanel = lazy(() => import('../components/HotSongPanel'));
-const SongResultList = lazy(() => import('../components/SongResultList'));
 const OnlineUsers = lazy(() => import('../components/OnlineUsers'));
 const RoomAmbientBackground = lazy(() => import('../components/RoomAmbientBackground'));
 const MiniPlayer = lazy(() => import('../components/MiniPlayer'));

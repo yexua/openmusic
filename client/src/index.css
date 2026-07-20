@@ -707,6 +707,7 @@ body {
 }
 
 .control-cluster.report {
+  justify-self: end;
   justify-content: flex-end;
   overflow: visible;
 }
@@ -2958,6 +2959,13 @@ body.immersive-mode #hand-canvas {
 
   .control-cluster.modes {
     order: 3;
+  }
+
+  .control-cluster.report {
+    order: 4;
+    justify-self: end;
+    width: auto;
+    margin-left: auto;
   }
 
   .control-track {

@@ -125,8 +125,12 @@ export default function RuntimeConfigPanel({ onError }: { onError: (message: str
     setSaving(true);
     try {
       const clearSecrets: string[] = [];
-      const payload: RuntimeConfig & { clearSecrets: string[] } = {
-        ...draft,
+      const { metingApiUrl: _ignoredUrl, metingApiAuth: _ignoredAuth, ...draftRest } = draft;
+      const payload: Omit<RuntimeConfig, 'metingApiUrl' | 'metingApiAuth'> & {
+        clearSecrets: string[];
+        metingSources: RuntimeConfig['metingSources'];
+      } = {
+        ...draftRest,
         clearSecrets,
         metingSources: draft.metingSources.map((source, index) => {
           if (!dirtyMetingAuth.has(index)) {

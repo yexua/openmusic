@@ -173,6 +173,7 @@ export function isRoomStateEquivalent(a: RoomState, b: RoomState): boolean {
     && currentSongEqual(a.nextRandom ?? null, b.nextRandom ?? null)
     && a.randomLoading === b.randomLoading
     && audioQualityEqual(a.audioQuality, b.audioQuality)
+    && a.playMode === b.playMode
     && a.neteaseFmMode === b.neteaseFmMode
     && a.announcementEnabled === b.announcementEnabled
     && a.announcementText === b.announcementText

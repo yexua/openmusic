@@ -59,6 +59,7 @@ import {
   setRoomMemberSettings,
   postMemberWelcomeMessage,
   setRoomFmMode,
+  setRoomPlayMode,
   setRoomAnnouncement,
   setChatHistoryVisibleOnJoin,
   setSongRequestEnabled,
@@ -1542,10 +1543,16 @@ async function advanceEndedRoomNow(roomId, expectedQueueId = '') {
     expectedQueueId,
   });
   if (!advanced) return null;
-  if (advanced.current?.queueId === beforeQueueId) return null;
+
+  // 单曲循环重播时 queueId 不变，但仍需下发 playback_state（回到曲首）
+  const sameTrackRestart = advanced.current?.queueId === beforeQueueId;
+  if (sameTrackRestart) {
+    const afterPosition = getPlaybackTime(getRoomInternal(roomId) || internal);
+    if (afterPosition > 2) return null;
+  }
 
   emitRoomAndPlayback(roomId, advanced);
-  console.log('playback auto advanced', {
+  console.log(sameTrackRestart ? 'playback loop-one restarted' : 'playback auto advanced', {
     roomId,
     from: beforeQueueId,
     at: beforePosition.toFixed(2),
@@ -1803,6 +1810,26 @@ io.on('connection', (socket) => {
     }
 
     const result = setRoomFmMode(roomId, getSocketUserId(socket), mode, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    broadcastRoomUpdate(roomId);
+    callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
+  });
+
+  socket.on('set_room_play_mode', ({ mode }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'set_room_play_mode', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = setRoomPlayMode(roomId, getSocketUserId(socket), mode, socket.id);
     if (result.error) {
       callback?.({ success: false, error: result.error });
       return;

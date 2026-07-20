@@ -1034,6 +1034,19 @@ if (s.connected) {
     });
   }, []);
 
+  const setRoomPlayMode = useCallback((mode: string): Promise<{ success: boolean; error?: string; room?: RoomState }> => {
+    return emitWithAck<{ success: boolean; error?: string; room?: RoomState }>(
+      'set_room_play_mode',
+      { mode },
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        applyRoomSnapshot(res.room);
+      }
+      return res;
+    });
+  }, []);
+
   const setRoomAnnouncement = useCallback((options: { enabled?: boolean; text?: string }): Promise<{ success: boolean; error?: string; room?: RoomState }> => {
     return emitWithAck<{ success: boolean; error?: string; room?: RoomState }>(
       'set_room_announcement',
@@ -1290,6 +1303,8 @@ if (s.connected) {
     setRoomLock,
 
     setRoomFmMode,
+
+    setRoomPlayMode,
 
     setRoomAnnouncement,
 
