@@ -22,6 +22,7 @@ import PlaybackTimeLabel from './playback/PlaybackTimeLabel';
 import Tooltip from './Tooltip';
 import VolumeControl from './VolumeControl';
 import FavoriteButton from './FavoriteButton';
+import PlayModeButton from './PlayModeButton';
 import AmbientCoverLayers from './AmbientCoverLayers';
 import { updateMediaSessionPlaybackState } from '../lib/mediaSession';
 import { canPauseInRoom, canSeekInRoom } from '../lib/roomPermissions';
@@ -272,6 +273,11 @@ export default memo(function PlayerPage({ onClose }: Props) {
               </button>
             </Tooltip>
           )}
+
+          <PlayModeButton
+            className="h-10 w-10 sm:h-12 sm:w-12 2xl:h-20 2xl:w-20"
+            iconClassName="h-5 w-5 sm:h-6 sm:w-6 2xl:h-8 2xl:w-8"
+          />
 
         </div>
 

@@ -141,9 +141,9 @@ export interface RoomState {
   /** 仅加入时由服务端按当前用户计算；广播更新请用 isChatMutedForUser */
   chatMuted?: boolean;
   ownerId: string | null;
-  /** 房间初创房主（永久身份，唯一显示「房主」） */
+  /** 房间初创房主（可通过转让变更；唯一显示「房主」） */
   creatorId?: string | null;
-  /** 管理员（最多 3 人，仅房主指定的正式管理） */
+  /** 管理员（最多 5 人，仅房主指定的正式管理） */
   adminIds?: string[];
   /** 临时自动提升管理（仅播放权，不含管理敏感字段） */
   autoPromotedAdminIds?: string[];
@@ -171,6 +171,8 @@ export interface RoomState {
   randomLoading?: boolean;
   /** 房间播放音质（红点 / 绿点） */
   audioQuality?: RoomAudioQuality;
+  /** 播放顺序：顺序 / 随机 / 单曲循环 / 列表循环 */
+  playMode?: 'order' | 'shuffle' | 'loop-one' | 'loop-all';
   /** 队列为空时私人漫游推荐模式 */
   neteaseFmMode?: string;
   /** 漫游关闭前的模式，重新开启时恢复 */

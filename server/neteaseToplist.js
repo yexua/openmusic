@@ -3,9 +3,9 @@ import { getRedisClient } from './roomStorage.js';
 const HOT_TOPLIST_ID = '3778678';
 const TOPLIST_URL = `https://music.163.com/discover/toplist?id=${HOT_TOPLIST_ID}`;
 const REDIS_CACHE_KEY = 'openmusic:netease:toplist:hot';
-/** 东八区对齐的 3 小时窗口，热榜按「三小时一清」 */
+/** 东八区对齐的 24 小时窗口，热榜按「每天一清」（北京时间 0 点换桶） */
 const TZ_OFFSET_MS = 8 * 60 * 60 * 1000;
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const NETEASE_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -18,13 +18,13 @@ let memoryCache = null;
 /** @type {Promise<{ id: string; name: string; songs: object[] }> | null} */
 let inflight = null;
 
-/** 东八区时间轴上的 3 小时桶键 */
+/** 东八区时间轴上的 24 小时桶键（按自然日） */
 function chinaBucketKey(now = Date.now()) {
   const shifted = now + TZ_OFFSET_MS;
   return String(Math.floor(shifted / CACHE_TTL_MS));
 }
 
-/** 距下一个东八区 3 小时边界的秒数（至少 60s，避免边界抖动） */
+/** 距下一个东八区日界（0 点）的秒数（至少 60s，避免边界抖动） */
 function secondsUntilNextChinaBucket(now = Date.now()) {
   const shifted = now + TZ_OFFSET_MS;
   const nextBoundary = (Math.floor(shifted / CACHE_TTL_MS) + 1) * CACHE_TTL_MS;

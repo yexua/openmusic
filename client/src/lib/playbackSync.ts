@@ -79,16 +79,6 @@ function isAudioNearMediaEnd(audio: HTMLAudioElement): boolean {
   return audio.currentTime >= mediaDur - LOCAL_ENDED_WAIT_SEC;
 }
 
-function isAudioAtLocalTrackEnd(
-  audio: HTMLAudioElement,
-  durationSec: number,
-): boolean {
-  const mediaDur = resolveMediaDurationSec(audio) || durationSec;
-  if (mediaDur <= 0) return Boolean(audio.ended);
-  // seeking/buffering 卡在末尾时 ended 可能永不为 true
-  return audio.ended || audio.currentTime >= mediaDur - LOCAL_ENDED_WAIT_SEC;
-}
-
 /**
  * 实际音频已耗尽，但服务端时钟仍在 playing（常见于元数据/歌词时长 > 文件时长，
  * 或 durationSec=0 导致服务端永不 auto-advance）。此时应由播放主控 finishSong。
@@ -107,6 +97,9 @@ function shouldAdvanceAfterLocalMediaEnd(
   if (!isAudioNearMediaEnd(audio)) return false;
 
   const serverPos = getPlaybackTime(state);
+  // 单曲循环等：服务端已回到曲首，本机仍停在 ended → 应 seek 重播，不能再 finish
+  if (serverPos < 1) return false;
+
   // 服务端进度已到/超过本机文件 → 再 seek 只会卡在末尾
   if (serverPos >= mediaDur - LOCAL_ENDED_WAIT_SEC) return true;
 
@@ -292,10 +285,8 @@ async function recoverFromEndedAudio(
   const durationSec = resolveSyncDurationSec(audio, options.song, state);
   const trackId = state.trackId || options.song.queueId;
 
-  if (
-    isPositionBeyondDuration(target, durationSec)
-    || isAudioAtLocalTrackEnd(audio, durationSec)
-  ) {
+  // 真正曲末由 shouldAdvanceAfterLocalMediaEnd 判定；单曲循环重播时服务端已回 0，需落到下方 seek+play
+  if (shouldAdvanceAfterLocalMediaEnd(audio, options.song, state)) {
     debugLog('sync_ended_beyond_duration', debugLine({
       reason,
       target: Number(target.toFixed(3)),
@@ -343,7 +334,7 @@ async function recoverFromEndedAudio(
     result,
     audio: Number(audio.currentTime.toFixed(3)),
   }));
-  if (isAudioAtLocalTrackEnd(audio, durationSec)) {
+  if (shouldAdvanceAfterLocalMediaEnd(audio, options.song, getClientPlaybackState())) {
     return 'beyond_duration';
   }
   return result;

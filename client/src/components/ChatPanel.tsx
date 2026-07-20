@@ -115,9 +115,18 @@ export default function ChatPanel({ className = '' }: { className?: string }) {
     }
   }, [recallChat]);
 
-  const handlePendingImageChange = useCallback((image: PendingChatImage | null) => {
+  const handlePendingImageChange = useCallback((
+    image: PendingChatImage | null,
+    options?: { revoke?: boolean },
+  ) => {
     setPendingImage((current) => {
-      if (current?.previewUrl && current.previewUrl !== image?.previewUrl) {
+      const shouldRevoke = options?.revoke !== false;
+      if (
+        shouldRevoke
+        && current?.previewUrl
+        && current.previewUrl.startsWith('blob:')
+        && current.previewUrl !== image?.previewUrl
+      ) {
         URL.revokeObjectURL(current.previewUrl);
       }
       return image;

@@ -137,6 +137,24 @@ export async function warmUpSocketSession(): Promise<void> {
 
 bindReportTrackDurationSocket(getSocket);
 
+export interface ErrorReportSolutionNoticePayload {
+  id: string;
+  description: string;
+  solution: string;
+  resolvedAt?: number | null;
+}
+
+/** 订阅管理员下发的问题上报解决方案（在线推送 / 进房补推） */
+export function subscribeErrorReportSolution(
+  handler: (notice: ErrorReportSolutionNoticePayload) => void,
+): () => void {
+  const s = getSocket();
+  s.on('error_report_solution', handler);
+  return () => {
+    s.off('error_report_solution', handler);
+  };
+}
+
 
 function emitWithAck<TResponse>(
   event: string,
@@ -1015,6 +1033,19 @@ if (s.connected) {
     });
   }, []);
 
+  const setRoomPlayMode = useCallback((mode: string): Promise<{ success: boolean; error?: string; room?: RoomState }> => {
+    return emitWithAck<{ success: boolean; error?: string; room?: RoomState }>(
+      'set_room_play_mode',
+      { mode },
+      { success: false, error: '连接超时，请重试' },
+    ).then((res) => {
+      if (res.success && res.room) {
+        applyRoomSnapshot(res.room);
+      }
+      return res;
+    });
+  }, []);
+
   const setRoomAnnouncement = useCallback((options: { enabled?: boolean; text?: string }): Promise<{ success: boolean; error?: string; room?: RoomState }> => {
     return emitWithAck<{ success: boolean; error?: string; room?: RoomState }>(
       'set_room_announcement',
@@ -1271,6 +1302,8 @@ if (s.connected) {
     setRoomLock,
 
     setRoomFmMode,
+
+    setRoomPlayMode,
 
     setRoomAnnouncement,
 

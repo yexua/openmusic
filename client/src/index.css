@@ -661,15 +661,16 @@ body {
   z-index: 1;
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) max-content;
   align-items: center;
   gap: clamp(8px, 1.7vw, 18px);
 }
 
 .room-immersive-mode .mineradio-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) max-content;
+  width: 100%;
   align-items: center;
-  justify-content: center;
   gap: 12px;
 }
 
@@ -701,6 +702,12 @@ body {
 }
 
 .control-cluster.modes {
+  justify-content: flex-end;
+  overflow: visible;
+}
+
+.control-cluster.report {
+  justify-self: end;
   justify-content: flex-end;
   overflow: visible;
 }
@@ -2904,6 +2911,13 @@ body.immersive-mode #hand-canvas {
 
   .control-cluster.modes {
     order: 3;
+  }
+
+  .control-cluster.report {
+    order: 4;
+    justify-self: end;
+    width: auto;
+    margin-left: auto;
   }
 
   .control-track {

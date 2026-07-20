@@ -42,12 +42,22 @@ const DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 60;
 const MAX_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 24 * 60 * 60;
 const MAX_BANNED_SONGS = 100;
 const MAX_CHAT_MESSAGES = 300;
-const MAX_ACCOUNTS_PER_IP_PER_ROOM = 2;
+/** 同一设备（非 IP）：办公室共用出口 IP 不应互相挤占 */
+const MAX_ACCOUNTS_PER_DEVICE_PER_ROOM = 2;
 const MAX_SONG_HISTORY = 150;
 export const INITIAL_CHAT_LIMIT = 100;
 export const CHAT_PAGE_LIMIT = 50;
 const MAX_RANDOM_HISTORY = 200;
 const MAX_RANDOM_PREFETCH_ATTEMPTS = 20;
+
+/** 播放顺序：顺序 / 乱序 / 单曲循环 / 列表循环 */
+export const PLAY_MODES = ['order', 'shuffle', 'loop-one', 'loop-all'];
+export const DEFAULT_PLAY_MODE = 'order';
+
+export function normalizePlayMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return PLAY_MODES.includes(mode) ? mode : DEFAULT_PLAY_MODE;
+}
 
 /** @type {((roomId: string) => void) | null} */
 let onRoomPrefetchReady = null;
@@ -298,6 +308,7 @@ function snapshotRoomForStorage(room) {
     audioQuality: room.audioQuality ?? { netease: 'hires', tencent: 'lossless' },
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
@@ -358,6 +369,7 @@ function restoreRoomFromStorage(data) {
   room.neteaseFmMode = normalizeFmMode(data.neteaseFmMode);
   const fmModeBeforeOff = normalizeFmMode(data.fmModeBeforeOff);
   room.fmModeBeforeOff = fmModeBeforeOff === FM_MODE_OFF ? DEFAULT_FM_MODE : fmModeBeforeOff;
+  room.playMode = normalizePlayMode(data.playMode);
   room.announcementEnabled = Boolean(data.announcementEnabled);
   room.announcementText = String(data.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH);
   room.chatHistoryVisibleOnJoin = Boolean(data.chatHistoryVisibleOnJoin);
@@ -552,6 +564,7 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     },
     neteaseFmMode: DEFAULT_FM_MODE,
     fmModeBeforeOff: DEFAULT_FM_MODE,
+    playMode: DEFAULT_PLAY_MODE,
     announcementEnabled: false,
     announcementText: '',
     /** 进房是否可查看历史聊天；默认关闭（仅看进房后的消息） */
@@ -583,7 +596,7 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
   };
 }
 
-const MAX_ADMINS = 3;
+const MAX_ADMINS = 5;
 
 function getNextOwnerId(room) {
   return Array.from(room.users.values())
@@ -1008,7 +1021,7 @@ function sanitizeCreatorId(value) {
   return /^[a-zA-Z0-9_-]{8,64}$/.test(id) ? id : '';
 }
 
-/** 记录房间创建者（首个可操控的非只读用户，或由创建房间 API 指定，持久保留；不可被后续请求覆盖） */
+/** 记录房间创建者（首个可操控的非只读用户，或由创建房间 API 指定，持久保留；仅可通过 transferOwner 变更） */
 function ensureCreatorId(room, userId) {
   if (room.creatorId) return;
   const safeId = sanitizeCreatorId(userId);
@@ -1355,13 +1368,13 @@ function resolveChatVisibleSince(room, userId, existingUser) {
   return since;
 }
 
-function countActiveUsersByIp(room, clientIp, excludeUserId = null) {
-  if (!room || !clientIp) return 0;
+function countActiveUsersByDevice(room, deviceId, excludeUserId = null) {
+  if (!room || !deviceId) return 0;
   let count = 0;
   for (const [userId, user] of room.users) {
     if (excludeUserId && userId === excludeUserId) continue;
     if (user.readOnly) continue;
-    if (user.clientIp === clientIp) count += 1;
+    if (user.deviceId && user.deviceId === deviceId) count += 1;
   }
   return count;
 }
@@ -1380,10 +1393,10 @@ export function addUser(roomId, userId, nickname, options = {}) {
 
   const existing = room.users.get(userId);
   const clientIp = String(options.clientIp || existing?.clientIp || '').trim() || null;
-  if (clientIp && !options.readOnly) {
-    const othersFromSameIp = countActiveUsersByIp(room, clientIp, userId);
-    if (othersFromSameIp >= MAX_ACCOUNTS_PER_IP_PER_ROOM) {
-      return { error: '同一网络下最多 2 个账号同时在房间内，请先退出其他窗口后再试' };
+  if (deviceId && !options.readOnly) {
+    const othersFromSameDevice = countActiveUsersByDevice(room, deviceId, userId);
+    if (othersFromSameDevice >= MAX_ACCOUNTS_PER_DEVICE_PER_ROOM) {
+      return { error: '同一设备最多 2 个账号同时在房间内，请先退出其他窗口后再试' };
     }
   }
 
@@ -1560,7 +1573,7 @@ export function setRoomAdmin(roomId, actorId, targetUserId, admin = true, connec
     if (isAppointedAdmin(room, targetId)) {
       return { room: serializeRoom(room) };
     }
-    if (appointedCount >= MAX_ADMINS) return { error: '管理员最多 3 人' };
+    if (appointedCount >= MAX_ADMINS) return { error: `管理员最多 ${MAX_ADMINS} 人` };
     admins.add(targetId);
     auto.delete(targetId);
     if (room.memberTiers?.has(targetId)) {
@@ -1619,6 +1632,22 @@ export function setRoomAudioQuality(roomId, actorId, quality = {}, connectionId 
     netease: quality.netease ?? current.netease,
     tencent: quality.tencent ?? current.tencent,
   });
+  persistRoom(room);
+  return { room: serializeRoom(room) };
+}
+
+export function setRoomPlayMode(roomId, actorId, mode, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isControllerConnection(room, actorId, connectionId)) {
+    return { error: '仅房主或管理员可切换播放顺序' };
+  }
+
+  const nextMode = normalizePlayMode(mode);
+  if (normalizePlayMode(room.playMode) === nextMode) {
+    return { room: serializeRoom(room) };
+  }
+  room.playMode = nextMode;
   persistRoom(room);
   return { room: serializeRoom(room) };
 }
@@ -2102,11 +2131,59 @@ export async function kickUser(roomId, actorId, targetUserId, connectionId = nul
 }
 
 export function transferOwner(roomId, actorId, targetUserId, connectionId = null) {
-  void roomId;
-  void actorId;
-  void targetUserId;
-  void connectionId;
-  return { error: '房主为房间初创者，不可转让' };
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+
+  const denied = requireCreator(room, actorId, connectionId);
+  if (denied) return denied;
+
+  const targetId = sanitizeCreatorId(targetUserId) || String(targetUserId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{8,64}$/.test(targetId)) return { error: '无效用户' };
+  if (targetId === actorId) return { error: '不能转让给自己' };
+  if (targetId === room.creatorId) return { error: '对方已是房主' };
+
+  const target = room.users.get(targetId);
+  if (!target) return { error: '用户不在房间中' };
+  if (!isEligibleOwner(target)) return { error: '不能转让给 TV / 只读用户' };
+
+  const actor = room.users.get(actorId);
+  const actorLabel = formatActorName(actor);
+  const targetLabel = resolveStoredNickname(room, targetId);
+
+  const admins = ensureAdminIds(room);
+  const auto = ensureAutoPromotedAdminIds(room);
+
+  // 新房主不再保留管理员身份
+  admins.delete(targetId);
+  auto.delete(targetId);
+
+  room.creatorId = targetId;
+
+  // 原房主降为正式管理员（名额允许时），避免转让后立刻失去管理权
+  if (actorId && actorId !== targetId) {
+    auto.delete(actorId);
+    const appointedCount = getAppointedAdminIds(room).filter((id) => id !== actorId).length;
+    if (appointedCount < MAX_ADMINS) {
+      admins.add(actorId);
+    } else {
+      admins.delete(actorId);
+    }
+  }
+
+  refreshRoomOwner(room, { preferCreator: true });
+  persistRoom(room);
+  invalidateRoomsListCache();
+
+  const systemMessage = appendSystemChatMessage(
+    room,
+    `${actorLabel} 将房主转让给了 ${targetLabel}`,
+  );
+
+  return {
+    room: serializeRoom(room),
+    message: `已将房主转让给「${targetLabel}」`,
+    systemMessage,
+  };
 }
 
 export function removeUser(roomId, userId, connectionId = null) {
@@ -2406,7 +2483,7 @@ export async function toggleCurrentDislike(roomId, userId) {
   let skipped = false;
   let systemMessage = null;
   if (dislikeCount >= threshold) {
-    await playNext(room, { allowFetchRandom: false });
+    await playNext(room, { allowFetchRandom: false, forceAdvance: true });
     skipped = true;
     systemMessage = appendSystemChatMessage(
       room,
@@ -2600,13 +2677,61 @@ function setCurrentSong(room, song) {
   if (room.queue.length === 0) void ensureNextRandom(room);
 }
 
-async function playNextUnlocked(room, options = {}) {
-  const { allowFetchRandom = false } = options;
+function restartCurrentSong(room) {
+  if (!room.current) return false;
   room.skipRequests = [];
+  room.current.dislikedByIds = [];
+  room.currentTime = 0;
+  room.startedAt = Date.now();
+  room.isPlaying = true;
+  room.randomLoading = false;
+  bumpPlaybackState(room);
+  return true;
+}
+
+function takeNextFromQueue(room) {
+  if (!room.queue.length) return null;
+  if (normalizePlayMode(room.playMode) === 'shuffle') {
+    const idx = Math.floor(Math.random() * room.queue.length);
+    return room.queue.splice(idx, 1)[0] || null;
+  }
+  return room.queue.shift() || null;
+}
+
+function recycleFinishedSongToQueue(room, finishedSong) {
+  if (!finishedSong || normalizePlayMode(room.playMode) !== 'loop-all') return;
+  const recycled = serializeQueueItemForRoom({
+    ...finishedSong,
+    queueId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    dislikedByIds: [],
+    likedByIds: Array.isArray(finishedSong.likedByIds) ? [...finishedSong.likedByIds] : [],
+    ownerPriority: 0,
+    priorityBy: '',
+    manualOrder: undefined,
+    addedAt: Date.now(),
+  });
+  if (!recycled) return;
+  room.queue.push(recycled);
+}
+
+async function playNextUnlocked(room, options = {}) {
+  const { allowFetchRandom = false, finishedSong = null, forceAdvance = false } = options;
+  room.skipRequests = [];
+
+  // 单曲循环：自然播完时重播当前曲；手动切歌 forceAdvance 仍前进
+  if (
+    !forceAdvance
+    && normalizePlayMode(room.playMode) === 'loop-one'
+    && (finishedSong || room.current)
+  ) {
+    if (restartCurrentSong(room)) return;
+  }
+
+  recycleFinishedSongToQueue(room, finishedSong || room.current);
 
   if (room.queue.length > 0) {
     clearNextRandom(room);
-    setCurrentSong(room, room.queue.shift());
+    setCurrentSong(room, takeNextFromQueue(room));
     return;
   }
 
@@ -2617,10 +2742,6 @@ async function playNextUnlocked(room, options = {}) {
 
   let random = room.nextRandom;
   room.nextRandom = null;
-
-  // if (random && room.randomPlayedKeys.has(songIdentity(random.source, random.id))) {
-  //   random = null;
-  // }
 
   const shouldFetchRandom = !random && (allowFetchRandom || room.queue.length === 0);
   if (shouldFetchRandom) {
@@ -2638,7 +2759,7 @@ async function playNextUnlocked(room, options = {}) {
       if (pending && !room.nextRandom) room.nextRandom = pending;
       notifyRoomPrefetchReady(room);
     }
-    setCurrentSong(room, room.queue.shift());
+    setCurrentSong(room, takeNextFromQueue(room));
     return;
   }
 
@@ -2745,7 +2866,7 @@ export async function skipSong(roomId, socketId, connectionId = null, options = 
   const user = room.users.get(socketId);
   const songTitle = room.current ? formatSongTitle(room.current) : '';
   const reason = String(options.reason || 'manual');
-  await playNext(room, { allowFetchRandom: false });
+  await playNext(room, { allowFetchRandom: false, forceAdvance: true });
 
   let systemMessage = null;
   if (songTitle) {
@@ -2772,7 +2893,8 @@ export async function finishCurrentSong(roomId, socketId, connectionId, queueId)
   await withPlaybackLock(room, async () => {
     if (!room.current) return;
     if (queueId && room.current.queueId !== queueId) return;
-    await playNextUnlocked(room, { allowFetchRandom: false });
+    const finished = room.current;
+    await playNextUnlocked(room, { allowFetchRandom: false, finishedSong: finished });
   });
   persistRoom(room);
   return { room: serializeRoom(room) };
@@ -2799,7 +2921,7 @@ export async function advancePlaybackIfEnded(roomId, options = {}) {
     if (!force && (lockedDurationSec <= 0 || getPlaybackTime(room) < lockedDurationSec + AUTO_ADVANCE_GRACE_SEC)) {
       return null;
     }
-    await playNextUnlocked(room, { allowFetchRandom: false });
+    await playNextUnlocked(room, { allowFetchRandom: false, finishedSong: room.current });
     persistRoom(room);
     return serializeRoom(room);
   });
@@ -3031,7 +3153,7 @@ export async function approveSkip(roomId, socketId, requestId, connectionId = nu
 
   clearSkipRequestExpiryTimer(roomId, requestId);
   room.skipRequests.splice(reqIdx, 1);
-  await playNext(room, { allowFetchRandom: false });
+  await playNext(room, { allowFetchRandom: false, forceAdvance: true });
 
   persistRoom(room);
   return { room: serializeRoom(room) };
@@ -3584,6 +3706,7 @@ function serializeRoom(room, options = {}) {
     audioQuality: normalizeRoomAudioQuality(room.audioQuality),
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
@@ -3639,6 +3762,7 @@ export function prepareRoomBroadcast(roomId) {
     audioQuality: normalizeRoomAudioQuality(room.audioQuality),
     neteaseFmMode: normalizeFmMode(room.neteaseFmMode),
     fmModeBeforeOff: normalizeFmMode(room.fmModeBeforeOff),
+    playMode: normalizePlayMode(room.playMode),
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),

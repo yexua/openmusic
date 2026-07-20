@@ -105,6 +105,9 @@ export default defineConfig({
             }
             return;
           }
+          if (id.includes('antd') || id.includes('@ant-design')) {
+            return 'antd-vendor';
+          }
           if (id.includes('three') || id.includes('@react-three') || id.includes('@mediapipe')) {
             return;
           }

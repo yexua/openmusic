@@ -3,6 +3,7 @@ import { Check, Clock, Crown, MapPin, Pencil, Shield, UserMinus, Users, X } from
 import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import { formatStayDuration } from '../lib/formatStayDuration';
+import { formatDisplayLocation } from '../lib/clientNetworkInfo';
 import ConfirmModal from './ConfirmModal';
 import Tooltip from './Tooltip';
 import TruncateTip from './TruncateTip';
@@ -308,7 +309,7 @@ export default function OnlineUsers({ users, creatorId, memberTiers = {}, onNoti
                         {!user.offline && (
                           <span className="inline-flex min-w-0 items-center gap-0.5">
                             <MapPin className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">{user.location || '未知'}</span>
+                            <span className="truncate">{formatDisplayLocation(user.location)}</span>
                           </span>
                         )}
                       </div>

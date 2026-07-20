@@ -208,7 +208,7 @@ export function getRuntimeConfig() {
   return normalize({ ...envDefaults(), ...getPersisted() });
 }
 
-function validateHttpUrl(value, label, { allowEmpty = false, allowList = false } = {}) {
+function validateHttpUrl(value, label, { allowEmpty = false, allowList = false, allowPrivate = false } = {}) {
   const values = allowList ? String(value || '').split(',') : [String(value || '')];
   for (let raw of values) {
     raw = raw.trim();
@@ -219,7 +219,8 @@ function validateHttpUrl(value, label, { allowEmpty = false, allowList = false }
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return `${label}必须是 http/https 地址${allowList ? '，多个地址用英文逗号分隔' : ''}`;
       }
-      if (isBlockedMediaHostname(parsed.hostname)) {
+      // Meting/ChKSz 上游常部署在本机或局域网，配置校验允许内网；媒体代理 SSRF 另有拦截
+      if (!allowPrivate && isBlockedMediaHostname(parsed.hostname)) {
         return `${label}不允许指向内网、本机或云元数据地址`;
       }
     } catch {
@@ -297,13 +298,19 @@ export function setRuntimeConfig(raw = {}) {
       if (clearSecrets.has(field)) next[field] = '';
       else if (typeof raw[field] === 'string' && raw[field].trim()) next[field] = raw[field].trim();
     } else if (Object.hasOwn(raw, field)) {
+      // 结构化音源列表已写回 metingApiUrl；勿用前端草稿里残留的旧逗号串盖掉
+      if (Array.isArray(raw.metingSources) && field === 'metingApiUrl') continue;
       next[field] = raw[field];
     }
   }
 
   const normalized = normalize(next);
   const urlChecks = [
-    validateHttpUrl(normalized.metingApiUrl, 'Meting API 地址', { allowEmpty: true, allowList: true }),
+    validateHttpUrl(normalized.metingApiUrl, 'Meting API 地址', {
+      allowEmpty: true,
+      allowList: true,
+      allowPrivate: true,
+    }),
     validateHttpUrl(normalized.cyapiBase, '迟言 API 地址'),
     validateHttpUrl(normalized.vmyLrcUrl, '歌词备用地址'),
     validateHttpUrl(normalized.lrcapiUrl, 'LrcAPI 歌词地址', { allowEmpty: true, allowList: true }),

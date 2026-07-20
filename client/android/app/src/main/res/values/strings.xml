@@ -4,4 +4,8 @@
     <string name="title_activity_main">OpenMusic</string>
     <string name="package_name">com.openmusic.app</string>
     <string name="custom_url_scheme">com.openmusic.app</string>
+    <string name="keepalive_channel_name">后台播放</string>
+    <string name="keepalive_channel_desc">保持房间连接与音乐播放</string>
+    <string name="keepalive_title">OpenMusic 正在运行</string>
+    <string name="keepalive_text">保持房间连接，防止息屏断开</string>
 </resources>

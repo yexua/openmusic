@@ -40,6 +40,7 @@ import SearchFilterSelect from '../components/SearchFilterSelect';
 import PlaylistChannelFilter from '../components/PlaylistChannelFilter';
 import PageNumberPagination from '../components/PageNumberPagination';
 import SearchSkeleton, { RESULT_BODY_HEIGHT } from '../components/SearchSkeleton';
+import SongResultList from '../components/SongResultList';
 import {
   getStoredSongResultPageSize,
   setStoredSongResultPageSize,
@@ -111,7 +112,6 @@ const ChatPanel = lazy(() => import('../components/ChatPanel'));
 const PureModeChatDock = lazy(() => import('../components/PureModeChatDock'));
 const QueuePanel = lazy(() => import('../components/QueuePanel'));
 const HotSongPanel = lazy(() => import('../components/HotSongPanel'));
-const SongResultList = lazy(() => import('../components/SongResultList'));
 const OnlineUsers = lazy(() => import('../components/OnlineUsers'));
 const RoomAmbientBackground = lazy(() => import('../components/RoomAmbientBackground'));
 const MiniPlayer = lazy(() => import('../components/MiniPlayer'));
@@ -273,7 +273,7 @@ export default function Room() {
     noindex: true,
   });
 
-  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, setRoomFmMode, setRoomAnnouncement, setChatHistoryVisibleOnJoin, setSongRequestEnabled, unbanRoomSong, setRoomMemberTier, removeRoomMemberTier, setRoomMemberSettings, loadSongHistory } = useSocket();
+  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, setRoomFmMode, setRoomAnnouncement, setChatHistoryVisibleOnJoin, setSongRequestEnabled, unbanRoomSong, setRoomMemberTier, removeRoomMemberTier, setRoomMemberSettings, loadSongHistory, transferOwner } = useSocket();
   const { applyFavorites } = useFavorites();
 
 
@@ -347,6 +347,7 @@ export default function Room() {
   const [lockSaving, setLockSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fmSaving, setFmSaving] = useState(false);
+  const [transferSaving, setTransferSaving] = useState(false);
   const [announcementSaving, setAnnouncementSaving] = useState(false);
   const [announcementPopupOpen, setAnnouncementPopupOpen] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
@@ -1090,6 +1091,19 @@ export default function Room() {
       showToast(res.error || '漫游模式设置失败', 'error');
     }
   }, [fmSaving, setRoomFmMode, showToast]);
+
+  const handleTransferOwner = useCallback(async (userId: string) => {
+    if (transferSaving) return;
+    setTransferSaving(true);
+    const res = await transferOwner(userId);
+    setTransferSaving(false);
+    if (res.success) {
+      showToast(res.message || '房主已转让', 'success');
+      setSettingsOpen(false);
+    } else {
+      showToast(res.error || '转让失败', 'error');
+    }
+  }, [transferSaving, transferOwner, showToast]);
 
   const handleSaveAnnouncement = useCallback(async (options: { enabled: boolean; text: string }) => {
     if (announcementSaving) return;
@@ -2099,12 +2113,16 @@ export default function Room() {
         bannedSongs={room?.bannedSongs ?? []}
         onUnbanSong={handleUnbanSong}
         memberTierCount={Object.keys(room?.memberTiers ?? {}).length}
+        users={room?.users ?? []}
+        myUserId={mySocketId}
+        transferSaving={transferSaving}
         onClose={() => setSettingsOpen(false)}
         onSaveFmMode={handleSaveFmMode}
         onOpenMemberModal={handleOpenMemberModalFromSettings}
         onSaveAnnouncement={handleSaveAnnouncement}
         onSaveChatHistory={handleSaveChatHistory}
         onSaveSongRequest={handleSaveSongRequestSettings}
+        onTransferOwner={handleTransferOwner}
       />
       </Suspense>
 

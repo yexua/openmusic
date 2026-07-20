@@ -61,6 +61,7 @@ import {
   setRoomMemberSettings,
   postMemberWelcomeMessage,
   setRoomFmMode,
+  setRoomPlayMode,
   setRoomAnnouncement,
   setChatHistoryVisibleOnJoin,
   setSongRequestEnabled,
@@ -128,7 +129,7 @@ import {
 import { checkApihzSensitiveWords } from './apihzSensitiveWord.js';
 import { getSiteAnnouncement, initSiteAnnouncement } from './siteAnnouncement.js';
 import { initSiteBans, isSiteBanned } from './siteBan.js';
-import { createErrorReport } from './errorReports.js';
+import { createErrorReport, listPendingSolutionsForUser, ackErrorReportSolution } from './errorReports.js';
 import { getRuntimeConfig } from './runtimeConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -375,10 +376,26 @@ function isPrivateIp(ip) {
 function normalizeLocationName(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  return text
-    .replace(/^(中国|中华人民共和国)/, '')
-    .replace(/(省|市|特别行政区|自治区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')
-    .slice(0, 12);
+  const parts = text
+    .replace(/^(中国|中华人民共和国)\s*/u, '')
+    .split(/[\s/|]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part
+      .replace(/(省|市|特别行政区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')
+      .trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const deduped = [];
+  for (const part of parts) {
+    if (deduped.length > 0 && deduped[deduped.length - 1] === part) continue;
+    deduped.push(part);
+  }
+  if (deduped.length > 1 && deduped.every((part) => part === deduped[0])) {
+    return deduped[0].slice(0, 12);
+  }
+  return deduped.join(' ').slice(0, 12);
 }
 
 function fallbackLocationForIp(ip) {
@@ -1114,6 +1131,27 @@ app.post('/api/error-reports', async (req, res) => {
   res.json({ success: true, report: result.report });
 });
 
+app.get('/api/error-reports/pending-solutions', async (req, res) => {
+  const identity = resolveIdentityFromRequest(req);
+  if (!identity?.userId) {
+    return res.status(401).json({ error: '会话未就绪，请刷新页面后重试' });
+  }
+  const solutions = await listPendingSolutionsForUser(identity.userId);
+  res.json({ solutions });
+});
+
+app.post('/api/error-reports/:id/ack-solution', async (req, res) => {
+  const identity = resolveIdentityFromRequest(req);
+  if (!identity?.userId) {
+    return res.status(401).json({ error: '会话未就绪，请刷新页面后重试' });
+  }
+  const result = await ackErrorReportSolution(req.params.id, identity.userId);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+  res.json({ success: true });
+});
+
 app.get('/api/rooms', (_req, res) => {
   res.json(listRooms());
 });
@@ -1550,10 +1588,16 @@ async function advanceEndedRoomNow(roomId, expectedQueueId = '') {
     expectedQueueId,
   });
   if (!advanced) return null;
-  if (advanced.current?.queueId === beforeQueueId) return null;
+
+  // 单曲循环重播时 queueId 不变，但仍需下发 playback_state（回到曲首）
+  const sameTrackRestart = advanced.current?.queueId === beforeQueueId;
+  if (sameTrackRestart) {
+    const afterPosition = getPlaybackTime(getRoomInternal(roomId) || internal);
+    if (afterPosition > 2) return null;
+  }
 
   emitRoomAndPlayback(roomId, advanced);
-  console.log('playback auto advanced', {
+  console.log(sameTrackRestart ? 'playback loop-one restarted' : 'playback auto advanced', {
     roomId,
     from: beforeQueueId,
     at: beforePosition.toFixed(2),
@@ -1711,6 +1755,14 @@ io.on('connection', (socket) => {
       if (welcomeMessage) {
         socket.to(id).emit('chat_message', welcomeMessage);
       }
+      // 若管理员已给出解决方案且用户尚未确认，进房时补推弹窗
+      if (!readOnly && userId) {
+        void listPendingSolutionsForUser(userId).then((solutions) => {
+          for (const notice of solutions) {
+            socket.emit('error_report_solution', notice);
+          }
+        }).catch(() => {});
+      }
     });
 
     ensurePlayback(id).then((room) => {
@@ -1739,6 +1791,17 @@ io.on('connection', (socket) => {
 
     broadcastRoomUpdate(roomId);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
+  });
+
+  socket.on('ack_error_report_solution', async ({ id } = {}, callback) => {
+    const userId = getSocketUserId(socket)
+      || resolveIdentityFromCookies(socket.handshake?.headers?.cookie || '')?.userId;
+    if (!userId) {
+      callback?.({ success: false, error: '会话无效' });
+      return;
+    }
+    const result = await ackErrorReportSolution(id, userId);
+    callback?.(result.success ? { success: true } : { success: false, error: result.error });
   });
 
   socket.on('rename_room', ({ name }, callback) => {
@@ -1792,6 +1855,26 @@ io.on('connection', (socket) => {
     }
 
     const result = setRoomFmMode(roomId, getSocketUserId(socket), mode, socket.id);
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    broadcastRoomUpdate(roomId);
+    callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
+  });
+
+  socket.on('set_room_play_mode', ({ mode }, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'set_room_play_mode', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = setRoomPlayMode(roomId, getSocketUserId(socket), mode, socket.id);
     if (result.error) {
       callback?.({ success: false, error: result.error });
       return;
@@ -2077,6 +2160,7 @@ io.on('connection', (socket) => {
     }
 
     broadcastRoomUpdate(roomId);
+    emitSystemChat(roomId, result.systemMessage);
     callback?.({ success: true, room: getViewerRoomPayload(socket, roomId), message: result.message });
   });
 

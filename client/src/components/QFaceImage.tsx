@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  acquireQFaceDisplayImage,
   getQQFaceItem,
-  getQQFaceUrl,
   isQFaceImageDecoded,
   markQFaceImageRendered,
   QFaceLoadPriority,
+  releaseQFaceDisplayImage,
   requestQFaceImage,
   subscribeQFaceImageState,
   type QFaceLoadPriority as QFacePriority,
@@ -37,7 +38,7 @@ export default function QFaceImage({
   placeholderClassName,
 }: Props) {
   const face = getQQFaceItem(id);
-  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hostRef = useRef<HTMLSpanElement>(null);
   const [decoded, setDecoded] = useState(() => isQFaceImageDecoded(id));
 
   useEffect(() => {
@@ -47,7 +48,9 @@ export default function QFaceImage({
   }, [id]);
 
   useEffect(() => {
-    const anchor = anchorRef.current;
+    if (isQFaceImageDecoded(id)) return;
+
+    const anchor = hostRef.current;
     if (!anchor) return;
 
     const schedule = (loadPriority: QFacePriority) => {
@@ -76,17 +79,28 @@ export default function QFaceImage({
     };
   }, [id, nearPriority, observeRoot, priority]);
 
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || !decoded) return;
+
+    const img = acquireQFaceDisplayImage(id, {
+      className,
+      alt: face.text,
+    });
+    if (!img) return;
+
+    host.replaceChildren(img);
+    markQFaceImageRendered(id);
+
+    return () => {
+      releaseQFaceDisplayImage(id, img);
+      host.replaceChildren();
+    };
+  }, [className, decoded, face.text, id]);
+
   const faceContent = (
-    <span ref={anchorRef} className="inline-flex align-middle">
-      {decoded ? (
-        <img
-          src={getQQFaceUrl(id)}
-          alt={face.text}
-          className={className}
-          decoding="async"
-          onLoad={() => markQFaceImageRendered(id)}
-        />
-      ) : (
+    <span ref={hostRef} className="inline-flex align-middle">
+      {!decoded && (
         <span
           className={placeholderClassName || className}
           aria-hidden="true"
