@@ -365,10 +365,26 @@ function isPrivateIp(ip) {
 function normalizeLocationName(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  return text
-    .replace(/^(中国|中华人民共和国)/, '')
-    .replace(/(省|市|特别行政区|自治区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')
-    .slice(0, 12);
+  const parts = text
+    .replace(/^(中国|中华人民共和国)\s*/u, '')
+    .split(/[\s/|]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part
+      .replace(/(省|市|特别行政区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')
+      .trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const deduped = [];
+  for (const part of parts) {
+    if (deduped.length > 0 && deduped[deduped.length - 1] === part) continue;
+    deduped.push(part);
+  }
+  if (deduped.length > 1 && deduped.every((part) => part === deduped[0])) {
+    return deduped[0].slice(0, 12);
+  }
+  return deduped.join(' ').slice(0, 12);
 }
 
 function fallbackLocationForIp(ip) {

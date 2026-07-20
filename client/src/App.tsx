@@ -98,6 +98,34 @@ export default function App() {
     };
   }, []);
 
+  // 空闲时预热 QQ 表情清单与常用图，避免每次进房才开始拉
+  useEffect(() => {
+    let cancelled = false;
+    const warm = () => {
+      if (cancelled) return;
+      void import('./lib/qface').then((mod) => {
+        if (!cancelled) mod.ensureQQFacesLoaded();
+      });
+    };
+
+    const ric = typeof window !== 'undefined'
+      ? window.requestIdleCallback?.bind(window)
+      : undefined;
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (ric) {
+      idleId = ric(warm, { timeout: 3500 });
+    } else {
+      timeoutId = setTimeout(warm, 1200);
+    }
+
+    return () => {
+      cancelled = true;
+      if (idleId != null) window.cancelIdleCallback?.(idleId);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+
   if (setupRequired === null) return <RouteFallback />;
 
   return (

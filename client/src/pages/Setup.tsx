@@ -1,6 +1,30 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Copy, Database, Loader2, Music2, RefreshCw, ShieldCheck } from 'lucide-react';
-import { AdminSwitch } from '../components/FormControls';
+import {
+  CheckCircleOutlined,
+  CloudServerOutlined,
+  CopyOutlined,
+  DatabaseOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  SoundOutlined,
+} from '@ant-design/icons';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Col,
+  Form,
+  Input,
+  InputNumber,
+  Layout,
+  Radio,
+  Row,
+  Space,
+  Switch,
+  Typography,
+} from 'antd';
+import AdminProviders from './admin/AdminProviders';
 import { buildRecommendedNginxConfig } from '../lib/nginxRecommended';
 
 type RedisMode = 'host' | 'url';
@@ -33,17 +57,18 @@ async function setupFetch<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export default function Setup() {
+function SetupPage() {
+  const { message } = App.useApp();
   const initialOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const [siteUrl, setSiteUrl] = useState(initialOrigin);
   const [trustProxy, setTrustProxy] = useState(true);
   const [mode, setMode] = useState<RedisMode>('host');
   const [redisUrl, setRedisUrl] = useState('redis://127.0.0.1:6379/0');
   const [host, setHost] = useState('127.0.0.1');
-  const [port, setPort] = useState('6379');
+  const [port, setPort] = useState(6379);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [database, setDatabase] = useState('0');
+  const [database, setDatabase] = useState(0);
   const [metingApiUrl, setMetingApiUrl] = useState('http://127.0.0.1:3000');
   const [metingApiAuth, setMetingApiAuth] = useState('');
   const [adminPath, setAdminPath] = useState(() => randomAdminPath());
@@ -53,7 +78,6 @@ export default function Setup() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<SetupResult | null>(null);
   const [appRoot, setAppRoot] = useState('/www/sjbmusic');
-  const [nginxCopied, setNginxCopied] = useState(false);
   const [showNginx, setShowNginx] = useState(true);
 
   const redis = useMemo(() => (
@@ -77,10 +101,24 @@ export default function Setup() {
   const copyNginx = async () => {
     try {
       await navigator.clipboard.writeText(nginxConfig);
-      setNginxCopied(true);
-      window.setTimeout(() => setNginxCopied(false), 2000);
+      message.success('已复制 Nginx 配置');
     } catch {
       setError('复制失败，请手动全选复制');
+    }
+  };
+
+  const copyCredentials = async () => {
+    if (!result) return;
+    const text = [
+      `账号：${result.username}`,
+      `密码：${result.password}`,
+      `管理入口：${result.adminPath}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success('已复制账号信息');
+    } catch {
+      message.error('复制失败，请手动选中复制');
     }
   };
 
@@ -91,6 +129,7 @@ export default function Setup() {
     try {
       await setupFetch('/api/setup/test-redis', { redis });
       setRedisOk(true);
+      message.success('Redis 连接成功');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Redis 连接失败');
     } finally {
@@ -120,258 +159,349 @@ export default function Setup() {
 
   if (result) {
     return (
-      <div className="min-h-screen bg-netease-dark px-4 py-8 text-white">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-          <div className="rounded-2xl border border-emerald-500/30 bg-white/5 p-6">
-            <div className="flex items-center gap-2 text-xl font-semibold">
-              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
-              初始化完成
-            </div>
-            <p className="mt-3 text-sm text-netease-muted">
-              配置已保存且安装入口已锁定。请重启 OpenMusic 服务后继续。
-            </p>
-            <div className="mt-4 space-y-2 rounded-xl bg-black/25 p-4 text-sm">
-              <p>账号：<code className="text-emerald-300">{result.username}</code></p>
-              <p>密码：<code className="text-emerald-300">{result.password}</code></p>
-              <p className="break-all">管理入口：<code className="text-emerald-300">{result.adminPath}</code></p>
-            </div>
-            <p className="mt-3 text-xs text-amber-300">
-              账号密码仅展示这一次，请立即复制并收藏；遗失后需用 Redis 重置。
-            </p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-netease-red py-2.5 text-sm font-medium"
-            >
-              <RefreshCw className="h-4 w-4" />
-              服务重启后刷新
-            </button>
-          </div>
-
-          {showNginx && (
-            <div className="rounded-2xl border border-sky-500/30 bg-white/5 p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-sky-300">Nginx location 片段</h2>
-                  <p className="mt-1 text-xs text-netease-muted">
-                    把下面这几个 <code className="text-white/70">location</code> 放进站点已有的 server 块（删掉原来的
-                    <code className="text-white/70"> location / </code> 全站反代），静态直出、仅 API / WebSocket 回 Node。
-                    保存后执行 <code className="text-white/70">nginx -t && nginx -s reload</code>。
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowNginx(false)}
-                  className="rounded-lg px-2 py-1 text-xs text-netease-muted hover:bg-white/5 hover:text-white"
-                >
-                  关闭
-                </button>
-              </div>
-
-              <label className="mt-4 block">
-                <span className="mb-1 block text-xs text-netease-muted">项目根目录（按服务器实际路径修改）</span>
-                <input
-                  value={appRoot}
-                  onChange={(e) => setAppRoot(e.target.value)}
-                  placeholder="/www/sjbmusic"
-                  spellCheck={false}
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 font-mono text-sm outline-none"
+      <Layout style={{ minHeight: '100vh', background: '#f5f7fa' }}>
+        <Layout.Content style={{ padding: '32px 24px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card>
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space>
+                  <CheckCircleOutlined style={{ fontSize: 22, color: '#52c41a' }} />
+                  <Typography.Title level={4} style={{ margin: 0 }}>
+                    初始化完成
+                  </Typography.Title>
+                </Space>
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  配置已保存且安装入口已锁定。请重启 OpenMusic 服务后继续。
+                </Typography.Paragraph>
+                <Card size="small" styles={{ body: { background: '#fafafa' } }}>
+                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                    <Typography.Text>
+                      账号：<Typography.Text code copyable>{result.username}</Typography.Text>
+                    </Typography.Text>
+                    <Typography.Text>
+                      密码：<Typography.Text code copyable>{result.password}</Typography.Text>
+                    </Typography.Text>
+                    <Typography.Text>
+                      管理入口：
+                      <Typography.Text code copyable style={{ wordBreak: 'break-all' }}>
+                        {result.adminPath}
+                      </Typography.Text>
+                    </Typography.Text>
+                  </Space>
+                </Card>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="账号密码仅展示这一次，请立即复制并收藏；遗失后需用 Redis 重置。"
                 />
-              </label>
+                <Space wrap>
+                  <Button icon={<CopyOutlined />} onClick={() => void copyCredentials()}>
+                    复制账号信息
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<ReloadOutlined />}
+                    onClick={() => window.location.reload()}
+                  >
+                    服务重启后刷新
+                  </Button>
+                </Space>
+              </Space>
+            </Card>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void copyNginx()}
-                  className="flex items-center gap-1.5 rounded-xl bg-sky-500/20 px-3 py-2 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/30"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  {nginxCopied ? '已复制' : '复制配置'}
-                </button>
-              </div>
-
-              <pre className="mt-3 max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-white/85">
-                {nginxConfig}
-              </pre>
-            </div>
-          )}
-        </div>
-      </div>
+            {showNginx && (
+              <Card
+                title={(
+                  <Space>
+                    <CloudServerOutlined />
+                    <span>Nginx location 片段</span>
+                  </Space>
+                )}
+                extra={(
+                  <Button type="link" size="small" onClick={() => setShowNginx(false)}>
+                    关闭
+                  </Button>
+                )}
+              >
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                    把下面的 <Typography.Text code>location</Typography.Text> 放进站点已有的 server 块
+                    （删掉原来的 <Typography.Text code>location /</Typography.Text> 全站反代），
+                    静态直出、仅 API / WebSocket 回 Node。保存后执行
+                    {' '}
+                    <Typography.Text code>nginx -t && nginx -s reload</Typography.Text>。
+                  </Typography.Paragraph>
+                  <Form layout="vertical" style={{ marginBottom: 0 }}>
+                    <Form.Item
+                      label="项目根目录（按服务器实际路径修改）"
+                      style={{ marginBottom: 12 }}
+                    >
+                      <Input
+                        value={appRoot}
+                        onChange={(e) => setAppRoot(e.target.value)}
+                        placeholder="/www/sjbmusic"
+                        spellCheck={false}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    </Form.Item>
+                  </Form>
+                  <Button icon={<CopyOutlined />} onClick={() => void copyNginx()}>
+                    复制配置
+                  </Button>
+                  <Input.TextArea
+                    value={nginxConfig}
+                    readOnly
+                    autoSize={{ minRows: 12, maxRows: 24 }}
+                    style={{ fontFamily: 'monospace', fontSize: 12 }}
+                  />
+                </Space>
+              </Card>
+            )}
+          </Space>
+        </Layout.Content>
+      </Layout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-netease-dark px-4 py-8 text-white">
-      <div className="mx-auto w-full max-w-2xl">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="h-7 w-7 text-netease-red" />
+    <Layout style={{ minHeight: '100vh', background: '#f5f7fa' }}>
+      <Layout.Content style={{ padding: '32px 24px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div>
-            <h1 className="text-xl font-semibold">OpenMusic 首次部署</h1>
-            <p className="text-xs text-netease-muted">填写 Redis 与音源，其余安全信息自动生成，无需手改配置文件</p>
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
-          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-sm font-medium">
-            <Database className="h-4 w-4 text-netease-muted" />
-            Redis 持久化
-          </div>
-          <div className="space-y-4 p-4">
-            <div className="flex gap-2">
-              {(['host', 'url'] as RedisMode[]).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => {
-                    setMode(item);
-                    setRedisOk(false);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-xs ${
-                    mode === item ? 'bg-netease-red text-white' : 'bg-white/5 text-netease-muted'
-                  }`}
-                >
-                  {item === 'host' ? '分项配置' : '连接 URL'}
-                </button>
-              ))}
-            </div>
-
-            {mode === 'url' ? (
-              <label className="block">
-                <span className="mb-1 block text-xs text-netease-muted">Redis URL</span>
-                <input
-                  value={redisUrl}
-                  onChange={(e) => {
-                    setRedisUrl(e.target.value);
-                    setRedisOk(false);
-                  }}
-                  placeholder="redis://user:password@127.0.0.1:6379/0"
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 font-mono text-sm outline-none"
-                />
-              </label>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <SetupField label="主机" value={host} onChange={(value) => { setHost(value); setRedisOk(false); }} placeholder="127.0.0.1" />
-                <SetupField label="端口" value={port} onChange={(value) => { setPort(value); setRedisOk(false); }} placeholder="6379" />
-                <SetupField label="账号（可选）" value={username} onChange={(value) => { setUsername(value); setRedisOk(false); }} />
-                <SetupField label="密码（可选）" value={password} onChange={(value) => { setPassword(value); setRedisOk(false); }} password />
-                <SetupField label="数据库编号" value={database} onChange={(value) => { setDatabase(value); setRedisOk(false); }} placeholder="0" />
+            <Space align="start" size={12}>
+              <SafetyCertificateOutlined style={{ fontSize: 28, color: '#1677ff', marginTop: 2 }} />
+              <div>
+                <Typography.Title level={3} style={{ margin: 0 }}>
+                  OpenMusic 首次部署
+                </Typography.Title>
+                <Typography.Text type="secondary">
+                  填写 Redis 与音源，其余安全信息自动生成，无需手改配置文件
+                </Typography.Text>
               </div>
+            </Space>
+          </div>
+
+          <Card
+            title={(
+              <Space>
+                <DatabaseOutlined />
+                <span>Redis 持久化</span>
+              </Space>
             )}
+          >
+            <Form layout="vertical" requiredMark={false}>
+              <Form.Item label="配置方式" style={{ marginBottom: 16 }}>
+                <Radio.Group
+                  value={mode}
+                  optionType="button"
+                  buttonStyle="solid"
+                  options={[
+                    { value: 'host', label: '分项配置' },
+                    { value: 'url', label: '连接 URL' },
+                  ]}
+                  onChange={(e) => {
+                    setMode(e.target.value as RedisMode);
+                    setRedisOk(false);
+                  }}
+                />
+              </Form.Item>
 
-            <button
-              type="button"
-              onClick={() => void testRedis()}
-              disabled={testing}
-              className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-sm disabled:opacity-40"
-            >
-              {testing && <Loader2 className="h-4 w-4 animate-spin" />}
-              {redisOk ? 'Redis 连接成功' : '测试 Redis 连接'}
-            </button>
-          </div>
-        </div>
+              {mode === 'url' ? (
+                <Form.Item label="Redis URL" style={{ marginBottom: 16 }}>
+                  <Input
+                    value={redisUrl}
+                    onChange={(e) => {
+                      setRedisUrl(e.target.value);
+                      setRedisOk(false);
+                    }}
+                    placeholder="redis://user:password@127.0.0.1:6379/0"
+                    spellCheck={false}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+              ) : (
+                <Row gutter={12}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="主机" style={{ marginBottom: 16 }}>
+                      <Input
+                        value={host}
+                        onChange={(e) => {
+                          setHost(e.target.value);
+                          setRedisOk(false);
+                        }}
+                        placeholder="127.0.0.1"
+                        spellCheck={false}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="端口" style={{ marginBottom: 16 }}>
+                      <InputNumber
+                        value={port}
+                        onChange={(value) => {
+                          setPort(Number(value) || 6379);
+                          setRedisOk(false);
+                        }}
+                        min={1}
+                        max={65535}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="账号（可选）" style={{ marginBottom: 16 }}>
+                      <Input
+                        value={username}
+                        onChange={(e) => {
+                          setUsername(e.target.value);
+                          setRedisOk(false);
+                        }}
+                        autoComplete="off"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="密码（可选）" style={{ marginBottom: 16 }}>
+                      <Input.Password
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          setRedisOk(false);
+                        }}
+                        autoComplete="new-password"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="数据库编号" style={{ marginBottom: 16 }}>
+                      <InputNumber
+                        value={database}
+                        onChange={(value) => {
+                          setDatabase(Number(value) || 0);
+                          setRedisOk(false);
+                        }}
+                        min={0}
+                        max={255}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
 
-        <div className="mt-5 rounded-2xl border border-white/10 bg-white/5">
-          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-sm font-medium">
-            <Music2 className="h-4 w-4 text-netease-muted" />
-            音源（Meting API）
-          </div>
-          <div className="space-y-3 p-4">
-            <SetupField
-              label="Meting 地址"
-              value={metingApiUrl}
-              onChange={setMetingApiUrl}
-              placeholder="http://127.0.0.1:3000"
-            />
-            <SetupField
-              label="Meting 令牌（auth，可选）"
-              value={metingApiAuth}
-              onChange={setMetingApiAuth}
-            />
-            <p className="text-xs text-netease-muted">
-              多个上游用英文逗号分隔自动负载均衡；留空可稍后在管理后台「运行配置」里填写。迟言 / 七牛 / 接口盒子等可选服务也在后台配置。
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <SetupField
-            label="站点访问地址"
-            value={siteUrl}
-            onChange={setSiteUrl}
-            placeholder="https://music.example.com"
-          />
-          <label className="block">
-            <span className="mb-1 block text-xs text-netease-muted">管理面板入口（已随机生成）</span>
-            <div className="flex gap-2">
-              <input
-                value={adminPath}
-                onChange={(e) => setAdminPath(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 font-mono text-sm outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setAdminPath(randomAdminPath())}
-                className="rounded-xl border border-white/10 px-3"
-                aria-label="重新生成管理入口"
+              <Button
+                onClick={() => void testRedis()}
+                loading={testing}
+                type={redisOk ? 'default' : 'primary'}
+                ghost={redisOk}
+                icon={redisOk ? <CheckCircleOutlined /> : <DatabaseOutlined />}
               >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            </div>
-          </label>
-          <AdminSwitch
-            checked={trustProxy}
-            onChange={setTrustProxy}
-            label="使用 Nginx / 宝塔 / CDN 反向代理（推荐开启）"
-          />
-          <p className="text-xs text-netease-muted">
-            将自动生成会话签名密钥、随机管理员账号密码、写入配置并锁定安装入口。
-          </p>
-        </div>
+                {redisOk ? 'Redis 连接成功' : '测试 Redis 连接'}
+              </Button>
+            </Form>
+          </Card>
 
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
-            {error}
-          </div>
-        )}
+          <Card
+            title={(
+              <Space>
+                <SoundOutlined />
+                <span>音源（Meting API）</span>
+              </Space>
+            )}
+          >
+            <Form layout="vertical" requiredMark={false}>
+              <Form.Item label="Meting 地址" style={{ marginBottom: 16 }}>
+                <Input
+                  value={metingApiUrl}
+                  onChange={(e) => setMetingApiUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:3000"
+                  spellCheck={false}
+                />
+              </Form.Item>
+              <Form.Item label="Meting 令牌（auth，可选）" style={{ marginBottom: 8 }}>
+                <Input
+                  value={metingApiAuth}
+                  onChange={(e) => setMetingApiAuth(e.target.value)}
+                  autoComplete="off"
+                />
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                多个上游用英文逗号分隔自动负载均衡；留空可稍后在管理后台「运行配置」里填写。
+                迟言 / 七牛 / 接口盒子等可选服务也在后台配置。
+              </Typography.Text>
+            </Form>
+          </Card>
 
-        <button
-          type="button"
-          onClick={() => void install()}
-          disabled={installing || !redisOk || !adminPath.trim()}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-netease-red py-3 text-sm font-medium disabled:opacity-40"
-        >
-          {installing && <Loader2 className="h-4 w-4 animate-spin" />}
-          一键创建并保存配置
-        </button>
-      </div>
-    </div>
+          <Card
+            title={(
+              <Space>
+                <SafetyCertificateOutlined />
+                <span>站点与安全</span>
+              </Space>
+            )}
+          >
+            <Form layout="vertical" requiredMark={false}>
+              <Form.Item label="站点访问地址" style={{ marginBottom: 16 }}>
+                <Input
+                  value={siteUrl}
+                  onChange={(e) => setSiteUrl(e.target.value)}
+                  placeholder="https://music.example.com"
+                  spellCheck={false}
+                />
+              </Form.Item>
+              <Form.Item label="管理面板入口（已随机生成）" style={{ marginBottom: 16 }}>
+                <Input
+                  value={adminPath}
+                  onChange={(e) => setAdminPath(e.target.value)}
+                  spellCheck={false}
+                  style={{ fontFamily: 'monospace' }}
+                  suffix={(
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<ReloadOutlined />}
+                      onClick={() => setAdminPath(randomAdminPath())}
+                      aria-label="重新生成管理入口"
+                    />
+                  )}
+                />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 8 }}>
+                <Space>
+                  <Switch checked={trustProxy} onChange={setTrustProxy} />
+                  <Typography.Text>使用 Nginx / 宝塔 / CDN 反向代理（推荐开启）</Typography.Text>
+                </Space>
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                将自动生成会话签名密钥、随机管理员账号密码、写入配置并锁定安装入口。
+              </Typography.Text>
+            </Form>
+          </Card>
+
+          {error && (
+            <Alert type="error" message={error} showIcon closable onClose={() => setError('')} />
+          )}
+
+          <Button
+            type="primary"
+            size="large"
+            block
+            loading={installing}
+            disabled={!redisOk || !adminPath.trim()}
+            onClick={() => void install()}
+          >
+            一键创建并保存配置
+          </Button>
+        </Space>
+      </Layout.Content>
+    </Layout>
   );
 }
 
-function SetupField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  password = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  password?: boolean;
-}) {
+export default function Setup() {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs text-netease-muted">{label}</span>
-      <input
-        type={password ? 'password' : 'text'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoComplete="off"
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm outline-none"
-      />
-    </label>
+    <AdminProviders>
+      <SetupPage />
+    </AdminProviders>
   );
 }

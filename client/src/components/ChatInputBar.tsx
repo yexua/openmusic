@@ -100,7 +100,7 @@ interface Props {
   replyTo: ChatReplyRef | null;
   onReplyChange: (reply: ChatReplyRef | null) => void;
   pendingImage: PendingChatImage | null;
-  onPendingImageChange: (image: PendingChatImage | null) => void;
+  onPendingImageChange: (image: PendingChatImage | null, options?: { revoke?: boolean }) => void;
   chatScrollRoot: HTMLDivElement | null;
   sendChat: (
     text: string,
@@ -354,8 +354,8 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
       .map((user) => ({ id: user.id, nickname: user.nickname }));
   }, [mySocketId, roomMeta.users]);
 
-  const clearPendingImage = useCallback(() => {
-    onPendingImageChange(null);
+  const clearPendingImage = useCallback((options?: { revoke?: boolean }) => {
+    onPendingImageChange(null, options);
     if (imageInputRef.current) imageInputRef.current.value = '';
   }, [onPendingImageChange]);
 
@@ -398,7 +398,8 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
     onStickToBottom();
     clearEditor();
     onReplyChange(null);
-    clearPendingImage();
+    // 发送中先藏起预览，但不 revoke；失败时还要回填同一 blob
+    clearPendingImage({ revoke: false });
     setSending(true);
     setError('');
     beginSendProgress({
@@ -440,6 +441,8 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
       onReplyChange(currentReplyTo);
       if (currentImage) onPendingImageChange(currentImage);
       setError(res.error || '发送失败');
+    } else if (currentImage?.previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(currentImage.previewUrl);
     }
     endSendProgress();
   };
@@ -757,12 +760,12 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
           <div className="mb-1.5 flex items-center gap-2 rounded-xl bg-white/5 px-2 py-1.5">
             <button
               type="button"
-              onClick={() => onPreviewImage(pendingImage.previewUrl)}
+              onClick={() => onPreviewImage(pendingImage.previewUrl || pendingImage.url)}
               className="flex-shrink-0 cursor-zoom-in overflow-hidden rounded-lg"
               aria-label="预览待发送图片"
             >
               <img
-                src={pendingImage.previewUrl}
+                src={pendingImage.previewUrl || pendingImage.url}
                 alt="待发送图片"
                 className="h-14 w-14 object-cover"
               />
@@ -772,7 +775,7 @@ const ChatInputBar = forwardRef<ChatInputBarHandle, Props>(function ChatInputBar
             </span>
             <button
               type="button"
-              onClick={clearPendingImage}
+              onClick={() => clearPendingImage()}
               className="rounded p-0.5 text-netease-muted hover:bg-white/10 hover:text-white"
               aria-label="移除图片"
             >

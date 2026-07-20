@@ -1,5 +1,6 @@
 import {
   configureQFaceImageLoader,
+  getQFaceObjectUrl,
   isQFaceImageDecoded,
   QFaceLoadPriority,
   requestQFaceImage,
@@ -116,16 +117,19 @@ async function loadLocalFaces(): Promise<QFaceItem[]> {
 
 export { QFaceLoadPriority, type QFaceImageState };
 export {
+  acquireQFaceDisplayImage,
   getQFaceImageState,
+  getQFaceObjectUrl,
   isQFaceImageDecoded,
   markQFaceImageRendered,
+  releaseQFaceDisplayImage,
   requestQFaceImage,
   requestQFaceImages,
   subscribeQFaceImageState,
 } from './qfaceImageLoader';
 
 export function getQQFaceUrl(id: string): string {
-  return faceUrl(id);
+  return getQFaceObjectUrl(id) || faceUrl(id);
 }
 
 export function getQQFaceItem(id: string): QFaceItem {

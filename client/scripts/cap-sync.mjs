@@ -34,16 +34,65 @@ function getServerUrl() {
   return '';
 }
 
-function writeCapacitorConfig(serverUrl) {
+function hostnameOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 远程 URL 若 301/302 到别的域名，Capacitor 会当成外链打开系统浏览器。
+ * sync 时探测最终地址，并把相关 host 写入 allowNavigation。
+ */
+async function resolveServerUrl(serverUrl) {
+  const normalized = serverUrl.replace(/\/+$/, '');
+  if (!normalized) return { url: '', hosts: [] };
+  const startHost = hostnameOf(normalized);
+  const hosts = new Set(startHost ? [startHost] : []);
+
+  try {
+    const res = await fetch(normalized, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'text/html' },
+      signal: AbortSignal.timeout(8000),
+    });
+    const finalUrl = res.url ? res.url.replace(/\/+$/, '') : normalized;
+    const finalHost = hostnameOf(finalUrl);
+    if (finalHost) hosts.add(finalHost);
+    if (finalHost && startHost && finalHost !== startHost) {
+      console.warn(
+        `[cap-sync] 警告: ${normalized} 会跳转到 ${finalUrl}\n` +
+          '  Capacitor 跨域会打开系统浏览器；已改用最终地址写入 server.url',
+      );
+      return { url: finalUrl, hosts: [...hosts] };
+    }
+  } catch (err) {
+    console.warn(`[cap-sync] 探测跳转失败，仍使用配置地址: ${err?.message || err}`);
+  }
+
+  return { url: normalized, hosts: [...hosts] };
+}
+
+function writeCapacitorConfig(serverUrl, allowHosts = []) {
   const base = JSON.parse(readFileSync(configPath, 'utf8'));
   const normalized = serverUrl.replace(/\/+$/, '');
   if (normalized) {
+    const host = hostnameOf(normalized);
+    const allowNavigation = [...new Set([host, ...allowHosts].filter(Boolean))];
     base.server = {
       url: normalized,
       cleartext: normalized.startsWith('http://'),
       androidScheme: normalized.startsWith('https://') ? 'https' : 'http',
+      // 允许同站/别名域名在 WebView 内跳转，避免打开系统浏览器
+      allowNavigation,
     };
     console.log(`[cap-sync] 远程 URL 模式: ${normalized}`);
+    if (allowNavigation.length) {
+      console.log(`[cap-sync] allowNavigation: ${allowNavigation.join(', ')}`);
+    }
   } else {
     delete base.server;
     console.log('[cap-sync] 未配置 CAPACITOR_SERVER_URL，将同步本地 dist');
@@ -51,10 +100,11 @@ function writeCapacitorConfig(serverUrl) {
   writeFileSync(configPath, `${JSON.stringify(base, null, 2)}\n`);
 }
 
-const serverUrl = getServerUrl();
+const configuredUrl = getServerUrl();
 const platform = process.argv[2] || '';
 
-writeCapacitorConfig(serverUrl);
+const { url: serverUrl, hosts: allowHosts } = await resolveServerUrl(configuredUrl);
+writeCapacitorConfig(serverUrl, allowHosts);
 
 if (serverUrl) {
   rmSync(distDir, { recursive: true, force: true });

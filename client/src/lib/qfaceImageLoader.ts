@@ -1,5 +1,7 @@
 /**
- * QQ 表情统一图片调度器：网络拉取 + 解码并发控制 + LRU + 状态机
+ * QQ 表情统一图片调度器：网络拉取 + 解码并发控制 + LRU + 显示节点池
+ *
+ * 进房重挂载时优先复用已解码的 <img> DOM 节点，避免 APNG 反复解码。
  *
  * 优先级（数值越小越高）：
  * P0 MESSAGE  — 当前可见消息内的表情
@@ -19,8 +21,10 @@ export type QFaceLoadPriority = typeof QFaceLoadPriority[keyof typeof QFaceLoadP
 
 export type QFaceImageState = 'idle' | 'loading' | 'loaded' | 'decoded' | 'rendered';
 
-const MAX_CONCURRENT_DECODE = 6;
-const LRU_MAX_DECODED = 150;
+const MAX_CONCURRENT_DECODE = 4;
+/** 全套约 214 个，会话内尽量常驻，避免进房反复解码 */
+const LRU_MAX_DECODED = 256;
+const MAX_POOLED_DISPLAY_PER_ID = 8;
 
 interface QueueEntry {
   id: string;
@@ -39,7 +43,12 @@ class QFaceImageLoader {
   private waitQueue: string[] = [];
   private loadPromises = new Map<string, Promise<void>>();
   private activeDecodes = 0;
+  /** 主图：解码结果，不直接挂到多个 DOM 位置 */
   private decodedImages = new Map<string, HTMLImageElement>();
+  /** 会话级 blob URL，避免重复网络请求 */
+  private objectUrls = new Map<string, string>();
+  /** 卸载后停泊的已解码显示节点，进房可直接复用 */
+  private displayPool = new Map<string, HTMLImageElement[]>();
   private lruOrder: string[] = [];
   private stateListeners = new Set<StateListener>();
 
@@ -67,6 +76,10 @@ class QFaceImageLoader {
     return this.decodedImages.get(id);
   }
 
+  getObjectUrl(id: string): string | undefined {
+    return this.objectUrls.get(id);
+  }
+
   subscribe(listener: StateListener): () => void {
     this.stateListeners.add(listener);
     return () => this.stateListeners.delete(listener);
@@ -85,6 +98,57 @@ class QFaceImageLoader {
     if (this.getState(id) === 'rendered') return;
     this.touchLru(id);
     this.setState(id, 'rendered');
+  }
+
+  /**
+   * 借出可用于展示的 <img>。优先返回停泊池中已解码节点（跨房间零成本），
+   * 否则从主图 clone（同表情多处同时出现时）。
+   */
+  acquireDisplayImage(
+    id: string,
+    options?: { className?: string; alt?: string },
+  ): HTMLImageElement | null {
+    if (!id || typeof Image === 'undefined') return null;
+
+    const pool = this.displayPool.get(id);
+    let img = pool?.pop();
+
+    if (!img) {
+      const master = this.decodedImages.get(id);
+      if (master) {
+        img = master.cloneNode(true) as HTMLImageElement;
+      } else {
+        const src = this.objectUrls.get(id) || this.urlForId(id);
+        img = new Image();
+        img.decoding = 'async';
+        img.src = src;
+      }
+    }
+
+    img.className = options?.className || '';
+    img.alt = options?.alt || '';
+    img.draggable = false;
+    this.touchLru(id);
+    return img;
+  }
+
+  /** 组件卸载时归还节点，保留解码结果供下次进房复用 */
+  releaseDisplayImage(id: string, img: HTMLImageElement): void {
+    if (!id || !img) return;
+    img.remove();
+    img.className = '';
+    img.alt = '';
+    img.onload = null;
+    img.onerror = null;
+
+    let pool = this.displayPool.get(id);
+    if (!pool) {
+      pool = [];
+      this.displayPool.set(id, pool);
+    }
+    if (pool.length < MAX_POOLED_DISPLAY_PER_ID) {
+      pool.push(img);
+    }
   }
 
   request(id: string, priority: QFaceLoadPriority): Promise<void> {
@@ -186,6 +250,20 @@ class QFaceImageLoader {
     }
   }
 
+  private async resolveObjectUrl(id: string, url: string): Promise<string> {
+    const cached = this.objectUrls.get(id);
+    if (cached) return cached;
+
+    const res = await fetch(url, { cache: 'force-cache' });
+    if (!res.ok) {
+      throw new Error(`QQ 表情加载失败: ${id}`);
+    }
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    this.objectUrls.set(id, objectUrl);
+    return objectUrl;
+  }
+
   private async fetchAndDecode(id: string, url: string): Promise<HTMLImageElement> {
     const cached = this.decodedImages.get(id);
     if (cached) return cached;
@@ -194,13 +272,14 @@ class QFaceImageLoader {
       return document.createElement('img');
     }
 
+    const objectUrl = await this.resolveObjectUrl(id, url);
     const image = new Image();
     image.decoding = 'async';
 
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
       image.onerror = () => reject(new Error(`QQ 表情加载失败: ${id}`));
-      image.src = url;
+      image.src = objectUrl;
     });
 
     this.setState(id, 'loaded');
@@ -231,9 +310,13 @@ class QFaceImageLoader {
   private evictLruIfNeeded(): void {
     while (this.lruOrder.length > LRU_MAX_DECODED) {
       const evictId = this.lruOrder.shift()!;
-      if (this.getState(evictId) === 'rendered') continue;
+      const state = this.getState(evictId);
+      // 仍在页面上展示的不驱逐主图
+      if (state === 'rendered') continue;
+
       this.decodedImages.delete(evictId);
-      if (this.getState(evictId) === 'decoded') {
+      this.displayPool.delete(evictId);
+      if (state === 'decoded' || state === 'loaded') {
         this.setState(evictId, 'loaded');
       }
     }
@@ -258,6 +341,10 @@ export function getQFaceDecodedImage(id: string): HTMLImageElement | undefined {
   return loader.getDecodedImage(id);
 }
 
+export function getQFaceObjectUrl(id: string): string | undefined {
+  return loader.getObjectUrl(id);
+}
+
 export function subscribeQFaceImageState(id: string, listener: (state: QFaceImageState) => void): () => void {
   return loader.subscribeId(id, listener);
 }
@@ -276,4 +363,15 @@ export function markQFaceImageRendered(id: string): void {
 
 export function bumpQFaceImagePriority(id: string, priority: QFaceLoadPriority): void {
   loader.bumpPriority(id, priority);
+}
+
+export function acquireQFaceDisplayImage(
+  id: string,
+  options?: { className?: string; alt?: string },
+): HTMLImageElement | null {
+  return loader.acquireDisplayImage(id, options);
+}
+
+export function releaseQFaceDisplayImage(id: string, img: HTMLImageElement): void {
+  loader.releaseDisplayImage(id, img);
 }

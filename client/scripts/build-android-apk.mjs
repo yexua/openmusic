@@ -3,11 +3,12 @@
  * 用法：npm run cap:build:apk
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const clientRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = resolve(clientRoot, '..');
 const androidRoot = resolve(clientRoot, 'android');
 const buildType = (process.argv[2] || 'debug').toLowerCase();
 const task = buildType === 'release' ? 'assembleRelease' : 'assembleDebug';
@@ -66,4 +67,22 @@ const build = spawnSync(gradlew, [task], {
 if (build.status !== 0) process.exit(build.status ?? 1);
 
 const apkDir = resolve(androidRoot, 'app', 'build', 'outputs', 'apk', buildType);
-console.log(`\n[build-apk] 完成。APK 目录：\n  ${apkDir}\n`);
+const builtApk = readdirSync(apkDir).find((f) => f.endsWith('.apk'));
+if (!builtApk) {
+  console.error(`[build-apk] 未在 ${apkDir} 找到 APK`);
+  process.exit(1);
+}
+const builtPath = resolve(apkDir, builtApk);
+const downloadsDir = resolve(repoRoot, 'server', 'downloads');
+mkdirSync(downloadsDir, { recursive: true });
+const deployPath = resolve(downloadsDir, 'openmusic.apk');
+copyFileSync(builtPath, deployPath);
+
+console.log(`
+[build-apk] 完成。
+  构建产物: ${builtPath}
+  下载位:   ${deployPath}
+
+覆盖安装条件：同包名 com.openmusic.app + versionCode 更大 + 同一签名（openmusic.jks）。
+若手机上旧包是以前 debug 随机签名，需先卸载一次，之后即可直接覆盖。
+`);

@@ -30,15 +30,39 @@ function normalizeRegion(value: unknown): string {
 
   if (parts.length === 0) return '';
 
-  const compact = parts
+  const normalizedParts = parts
     .slice(0, 2)
     .map((part) => part
       .replace(/(省|市|特别行政区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')
       .trim())
-    .filter(Boolean)
-    .join(' ');
+    .filter(Boolean);
+
+  const deduped = dedupeLocationParts(normalizedParts);
+  const compact = deduped.join(' ');
 
   return compact.slice(0, 12);
+}
+
+/** 去掉相邻或完全重复的归属地片段，如「北京 北京」→「北京」 */
+function dedupeLocationParts(parts: string[]): string[] {
+  const deduped: string[] = [];
+  for (const part of parts) {
+    if (deduped.length > 0 && deduped[deduped.length - 1] === part) continue;
+    deduped.push(part);
+  }
+  if (deduped.length > 1 && deduped.every((part) => part === deduped[0])) {
+    return [deduped[0]!];
+  }
+  return deduped;
+}
+
+/** 展示用：兼容历史缓存里的重复归属地 */
+export function formatDisplayLocation(location?: string | null): string {
+  const text = cleanText(location, 64);
+  if (!text) return '未知';
+  const parts = text.split(/[\s/|]+/u).map((part) => part.trim()).filter(Boolean);
+  const deduped = dedupeLocationParts(parts);
+  return deduped.join(' ') || '未知';
 }
 
 function parseLookupResponse(data: Record<string, unknown>): ClientNetworkInfo {
