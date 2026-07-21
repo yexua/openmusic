@@ -4,5 +4,5 @@
     "房主侧设置内新增进房提示功能",
     "优化其他已知问题"
   ],
-  "forcePrompt": true
+  "forcePrompt": false
 }
