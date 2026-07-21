@@ -60,13 +60,21 @@ export default function CredentialsPanel({
       .catch(() => setGithubEnabled(false));
 
     const url = new URL(window.location.href);
-    const result = url.searchParams.get('linuxdo') || url.searchParams.get('github');
-    if (result) {
+    const linuxdoResult = url.searchParams.get('linuxdo');
+    const githubResult = url.searchParams.get('github');
+    const showBindResult = (provider: string, result: string) => {
+      if (result === 'bound') message.success(`已绑定 ${provider} 账号`);
+      else if (result === 'expired') message.error('会话已过期，请重新登录后绑定');
+      else if (result === 'error') message.error(`绑定 ${provider} 账号失败，请稍后再试`);
+    };
+    if (linuxdoResult) showBindResult('Linux.do', linuxdoResult);
+    if (githubResult) showBindResult('GitHub', githubResult);
+    if (linuxdoResult || githubResult) {
       url.searchParams.delete('linuxdo');
       url.searchParams.delete('github');
       window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
-  }, []);
+  }, [message]);
 
   const unbindLinuxdo = async () => {
     setLinuxdoUnbinding(true);

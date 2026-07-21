@@ -143,8 +143,15 @@ export async function bindLinuxdoToUser(linuxdoId, userId, profile) {
 
   const existingUserId = await client.get(`${BIND_PREFIX}${linuxdoId}`);
   if (existingUserId && existingUserId !== userId) {
-    // 之前绑定给别的 userId 的旧关联需要先清掉，避免同一 linuxdoId 悬挂多份 profile
+    // 这个 linuxdoId 之前绑定给别的 userId 的旧关联需要先清掉，避免同一 linuxdoId 悬挂多份 profile
     await client.del(`${PROFILE_PREFIX}${existingUserId}`);
+  }
+
+  // 这个 userId 之前绑定过别的 linuxdoId 也要一并清掉，否则旧账号仍能找回这个身份
+  // （换绑后旧账号继续拥有恢复权限，等于换绑形同虚设）
+  const previousProfile = await getLinuxdoProfileForUser(userId);
+  if (previousProfile?.linuxdoId && previousProfile.linuxdoId !== linuxdoId) {
+    await client.del(`${BIND_PREFIX}${previousProfile.linuxdoId}`);
   }
 
   const record = {

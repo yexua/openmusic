@@ -133,7 +133,15 @@ export async function bindGithubToUser(githubId, userId, profile) {
 
   const existingUserId = await client.get(`${BIND_PREFIX}${githubId}`);
   if (existingUserId && existingUserId !== userId) {
+    // 这个 githubId 之前绑定给别的 userId 的旧关联需要先清掉，避免同一 githubId 悬挂多份 profile
     await client.del(`${PROFILE_PREFIX}${existingUserId}`);
+  }
+
+  // 这个 userId 之前绑定过别的 githubId 也要一并清掉，否则旧账号仍能找回这个身份
+  // （换绑后旧账号继续拥有恢复权限，等于换绑形同虚设）
+  const previousProfile = await getGithubProfileForUser(userId);
+  if (previousProfile?.githubId && previousProfile.githubId !== githubId) {
+    await client.del(`${BIND_PREFIX}${previousProfile.githubId}`);
   }
 
   const record = {
