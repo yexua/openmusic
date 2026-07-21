@@ -538,6 +538,7 @@ export default function Home() {
 
             <p className="text-[15px] sm:text-lg text-white/55 mb-10 max-w-xl leading-relaxed">
               全网曲库秒搜秒播，歌词实时同步，打破距离的限制，创建属于你们的
+              <br />
               <span className="text-white/80 font-medium">专属音乐宇宙</span>。
             </p>
 
