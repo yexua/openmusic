@@ -178,6 +178,8 @@ export function isRoomStateEquivalent(a: RoomState, b: RoomState): boolean {
     && a.announcementEnabled === b.announcementEnabled
     && a.announcementText === b.announcementText
     && a.chatHistoryVisibleOnJoin === b.chatHistoryVisibleOnJoin
+    && a.joinNoticeEnabled === b.joinNoticeEnabled
+    && a.joinNoticeCooldownSec === b.joinNoticeCooldownSec
     && a.songRequestEnabled === b.songRequestEnabled
     && a.memberJumpEnabled === b.memberJumpEnabled
     && a.memberSeekEnabled === b.memberSeekEnabled

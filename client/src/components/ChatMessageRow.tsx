@@ -161,7 +161,7 @@ function ChatMessageRow({
     );
   }
 
-  if (msg.kind === 'recall') {
+  if (msg.kind === 'recall' || msg.kind === 'notice') {
     return (
       <div className="flex justify-center px-2 py-1">
         <p className="max-w-[92%] text-center text-[11px] leading-5 text-netease-muted/80">

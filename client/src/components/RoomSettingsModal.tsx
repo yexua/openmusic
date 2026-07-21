@@ -12,6 +12,7 @@ const MIN_STAY_MINUTES_MAX = 24 * 60;
 const MAX_PER_USER_MAX = 50;
 const DISLIKE_SKIP_THRESHOLD_MAX = 50;
 const CLEAR_ON_LEAVE_DELAY_MINUTES_MAX = 24 * 60;
+const JOIN_NOTICE_COOLDOWN_MINUTES_MAX = 24 * 60;
 const COOLDOWN_OPTIONS = [0, 10, 30, 60, 120] as const;
 const QUEUE_LIMIT_OPTIONS = [50, 100, 200] as const;
 
@@ -65,6 +66,9 @@ interface Props {
   announcementSaving?: boolean;
   chatHistoryVisibleOnJoin: boolean;
   chatHistorySaving?: boolean;
+  joinNoticeEnabled: boolean;
+  joinNoticeCooldownMinutes: number;
+  joinNoticeSaving?: boolean;
   songRequest: SongRequestSettings;
   songRequestSaving?: boolean;
   bannedSongs?: BannedSong[];
@@ -78,6 +82,7 @@ interface Props {
   onOpenMemberModal: () => void;
   onSaveAnnouncement: (options: { enabled: boolean; text: string }) => void;
   onSaveChatHistory: (enabled: boolean) => void;
+  onSaveJoinNotice: (settings: { enabled: boolean; cooldownMinutes: number }) => void;
   onSaveSongRequest: (settings: SongRequestSettings) => void;
   onTransferOwner?: (userId: string) => void | Promise<void>;
 }
@@ -201,6 +206,9 @@ export default function RoomSettingsModal({
   announcementSaving = false,
   chatHistoryVisibleOnJoin,
   chatHistorySaving = false,
+  joinNoticeEnabled,
+  joinNoticeCooldownMinutes,
+  joinNoticeSaving = false,
   songRequest,
   songRequestSaving = false,
   bannedSongs = [],
@@ -214,12 +222,15 @@ export default function RoomSettingsModal({
   onOpenMemberModal,
   onSaveAnnouncement,
   onSaveChatHistory,
+  onSaveJoinNotice,
   onSaveSongRequest,
   onTransferOwner,
 }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('announcement');
   const [draftAnnouncementEnabled, setDraftAnnouncementEnabled] = useState(announcementEnabled);
   const [draftAnnouncementText, setDraftAnnouncementText] = useState(announcementText);
+  const [draftJoinNoticeEnabled, setDraftJoinNoticeEnabled] = useState(joinNoticeEnabled);
+  const [draftJoinNoticeCooldownMinutes, setDraftJoinNoticeCooldownMinutes] = useState(joinNoticeCooldownMinutes);
   const [draftSongRequest, setDraftSongRequest] = useState(songRequest);
   const [transferTargetId, setTransferTargetId] = useState<string | null>(null);
   const [confirmTransfer, setConfirmTransfer] = useState(false);
@@ -260,13 +271,23 @@ export default function RoomSettingsModal({
 
     setDraftAnnouncementEnabled(announcementEnabled);
     setDraftAnnouncementText(announcementText);
+    setDraftJoinNoticeEnabled(joinNoticeEnabled);
+    setDraftJoinNoticeCooldownMinutes(joinNoticeCooldownMinutes);
     setDraftSongRequest(songRequest);
     appliedAnnouncementRef.current = { enabled: announcementEnabled, text: announcementText };
     appliedSongRequestRef.current = songRequest;
     setTransferTargetId(null);
     setConfirmTransfer(false);
     setActiveTab(tabs[0]?.id ?? 'announcement');
-  }, [open, announcementEnabled, announcementText, songRequest, tabs]);
+  }, [
+    open,
+    announcementEnabled,
+    announcementText,
+    joinNoticeEnabled,
+    joinNoticeCooldownMinutes,
+    songRequest,
+    tabs,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -323,6 +344,8 @@ export default function RoomSettingsModal({
   const currentFm = normalizeFmMode(fmMode);
   const announcementDirty = draftAnnouncementEnabled !== announcementEnabled
     || draftAnnouncementText.trim() !== announcementText.trim();
+  const joinNoticeDirty = draftJoinNoticeEnabled !== joinNoticeEnabled
+    || draftJoinNoticeCooldownMinutes !== joinNoticeCooldownMinutes;
   const songRequestDirty = draftSongRequest.enabled !== songRequest.enabled
     || draftSongRequest.memberJumpEnabled !== songRequest.memberJumpEnabled
     || draftSongRequest.memberSeekEnabled !== songRequest.memberSeekEnabled
@@ -569,6 +592,49 @@ export default function RoomSettingsModal({
                   label="进房可查看历史消息"
                   description="开启后，成员进入房间可浏览此前聊天记录；关闭则仅能看到进房之后的消息"
                 />
+                {isOwner && (
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <Toggle
+                      checked={draftJoinNoticeEnabled}
+                      disabled={joinNoticeSaving}
+                      onChange={setDraftJoinNoticeEnabled}
+                      label="进房系统提醒"
+                      description="成员进入时在聊天室提示“昵称进入房间”"
+                    />
+                    <div className={draftJoinNoticeEnabled ? '' : 'opacity-50'}>
+                      <label htmlFor="settings-join-notice-cooldown" className="text-sm font-medium text-white">
+                        重复提醒间隔
+                      </label>
+                      <p className="mt-0.5 text-xs text-netease-muted">
+                        同一用户在此时间内重新进入不会重复提醒，0 表示每次都提醒
+                      </p>
+                      <NumberStepper
+                        id="settings-join-notice-cooldown"
+                        value={draftJoinNoticeCooldownMinutes}
+                        min={0}
+                        max={JOIN_NOTICE_COOLDOWN_MINUTES_MAX}
+                        disabled={joinNoticeSaving || !draftJoinNoticeEnabled}
+                        suffix="分钟"
+                        onChange={setDraftJoinNoticeCooldownMinutes}
+                      />
+                    </div>
+                    {joinNoticeDirty && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          disabled={joinNoticeSaving}
+                          onClick={() => onSaveJoinNotice({
+                            enabled: draftJoinNoticeEnabled,
+                            cooldownMinutes: draftJoinNoticeCooldownMinutes,
+                          })}
+                          className="rounded-xl bg-netease-red px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-netease-red/90 disabled:opacity-50"
+                        >
+                          {joinNoticeSaving ? '保存中…' : '保存进房提醒'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </section>
           )}

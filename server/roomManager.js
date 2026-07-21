@@ -40,6 +40,8 @@ const DEFAULT_DISLIKE_SKIP_PERCENT = 50;
 const MAX_DISLIKE_SKIP_THRESHOLD = 50;
 const DEFAULT_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 60;
 const MAX_CLEAR_SONGS_ON_LEAVE_DELAY_SEC = 24 * 60 * 60;
+const DEFAULT_JOIN_NOTICE_COOLDOWN_SEC = 3 * 60;
+const MAX_JOIN_NOTICE_COOLDOWN_SEC = 24 * 60 * 60;
 const MAX_BANNED_SONGS = 100;
 const MAX_CHAT_MESSAGES = 300;
 /** 同一设备（非 IP）：办公室共用出口 IP 不应互相挤占 */
@@ -312,6 +314,8 @@ function snapshotRoomForStorage(room) {
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
+    joinNoticeEnabled: room.joinNoticeEnabled !== false,
+    joinNoticeCooldownSec: normalizeJoinNoticeCooldownSec(room.joinNoticeCooldownSec),
     songRequestEnabled: room.songRequestEnabled !== false,
     songRequestMinStaySec: normalizeSongRequestMinStaySec(room.songRequestMinStaySec),
     songRequestMaxPerUser: normalizeSongRequestMaxPerUser(room.songRequestMaxPerUser),
@@ -373,6 +377,8 @@ function restoreRoomFromStorage(data) {
   room.announcementEnabled = Boolean(data.announcementEnabled);
   room.announcementText = String(data.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH);
   room.chatHistoryVisibleOnJoin = Boolean(data.chatHistoryVisibleOnJoin);
+  room.joinNoticeEnabled = data.joinNoticeEnabled !== false;
+  room.joinNoticeCooldownSec = normalizeJoinNoticeCooldownSec(data.joinNoticeCooldownSec);
   room.songRequestEnabled = data.songRequestEnabled !== false;
   room.songRequestMinStaySec = normalizeSongRequestMinStaySec(data.songRequestMinStaySec);
   room.songRequestMaxPerUser = normalizeSongRequestMaxPerUser(data.songRequestMaxPerUser);
@@ -569,6 +575,10 @@ function createEmptyRoom(roomId, name, passwordHash = null) {
     announcementText: '',
     /** 进房是否可查看历史聊天；默认关闭（仅看进房后的消息） */
     chatHistoryVisibleOnJoin: false,
+    /** 普通成员进房时是否向聊天室推送短暂系统提示 */
+    joinNoticeEnabled: true,
+    joinNoticeCooldownSec: DEFAULT_JOIN_NOTICE_COOLDOWN_SEC,
+    lastJoinNoticeAt: new Map(),
     songRequestEnabled: true,
     songRequestMinStaySec: 0,
     songRequestMaxPerUser: 0,
@@ -827,6 +837,15 @@ function canUserRequestSong(room, userId) {
 const MAX_ANNOUNCEMENT_LENGTH = 2000;
 const MAX_SONG_REQUEST_MIN_STAY_SEC = 24 * 60 * 60;
 const MAX_SONG_REQUEST_PER_USER = 50;
+
+function normalizeJoinNoticeCooldownSec(value) {
+  if (value === undefined || value === null || value === '') {
+    return DEFAULT_JOIN_NOTICE_COOLDOWN_SEC;
+  }
+  const sec = Math.floor(Number(value));
+  if (!Number.isFinite(sec) || sec < 0) return DEFAULT_JOIN_NOTICE_COOLDOWN_SEC;
+  return Math.min(sec, MAX_JOIN_NOTICE_COOLDOWN_SEC);
+}
 
 function normalizeSongRequestMinStaySec(value) {
   const sec = Math.floor(Number(value) || 0);
@@ -1704,6 +1723,40 @@ export function setRoomMemberSettings(roomId, actorId, settings = {}, connection
   });
   persistRoom(room);
   return { room: serializeRoom(room) };
+}
+
+export function setRoomJoinNotice(roomId, actorId, settings = {}, connectionId = null) {
+  const room = rooms.get(roomId);
+  if (!room) return { error: '房间不存在' };
+  if (!isOwnerConnection(room, actorId, connectionId)) return { error: '仅房主可调整进房提醒' };
+
+  if (settings.enabled !== undefined) {
+    room.joinNoticeEnabled = Boolean(settings.enabled);
+  }
+  if (settings.cooldownSec !== undefined) {
+    room.joinNoticeCooldownSec = normalizeJoinNoticeCooldownSec(settings.cooldownSec);
+  }
+  persistRoom(room);
+  return { room: serializeRoom(room) };
+}
+
+export function postJoinNoticeMessage(roomId, userId) {
+  const room = rooms.get(roomId);
+  if (!room || !userId || room.joinNoticeEnabled === false) return null;
+
+  const user = room.users.get(userId);
+  if (!user || user.readOnly) return null;
+
+  if (!room.lastJoinNoticeAt) room.lastJoinNoticeAt = new Map();
+  const now = Date.now();
+  const cooldownMs = normalizeJoinNoticeCooldownSec(room.joinNoticeCooldownSec) * 1000;
+  const lastNoticeAt = Number(room.lastJoinNoticeAt.get(userId)) || 0;
+  if (cooldownMs > 0 && now - lastNoticeAt < cooldownMs) return null;
+
+  room.lastJoinNoticeAt.set(userId, now);
+  const nickname = formatActorName(user);
+  const message = appendSystemChatMessage(room, `${nickname}进入房间`);
+  return message ? { ...message, kind: 'notice' } : null;
 }
 
 const MEMBER_WELCOME_COOLDOWN_MS = 5 * 60 * 1000;
@@ -3715,6 +3768,8 @@ function serializeRoom(room, options = {}) {
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
+    joinNoticeEnabled: room.joinNoticeEnabled !== false,
+    joinNoticeCooldownSec: normalizeJoinNoticeCooldownSec(room.joinNoticeCooldownSec),
     songRequestEnabled: room.songRequestEnabled !== false,
     songRequestMinStaySec: normalizeSongRequestMinStaySec(room.songRequestMinStaySec),
     songRequestMaxPerUser: normalizeSongRequestMaxPerUser(room.songRequestMaxPerUser),
@@ -3771,6 +3826,8 @@ export function prepareRoomBroadcast(roomId) {
     announcementEnabled: Boolean(room.announcementEnabled),
     announcementText: String(room.announcementText || '').slice(0, MAX_ANNOUNCEMENT_LENGTH),
     chatHistoryVisibleOnJoin: Boolean(room.chatHistoryVisibleOnJoin),
+    joinNoticeEnabled: room.joinNoticeEnabled !== false,
+    joinNoticeCooldownSec: normalizeJoinNoticeCooldownSec(room.joinNoticeCooldownSec),
     songRequestEnabled: room.songRequestEnabled !== false,
     songRequestMinStaySec: normalizeSongRequestMinStaySec(room.songRequestMinStaySec),
     songRequestMaxPerUser: normalizeSongRequestMaxPerUser(room.songRequestMaxPerUser),

@@ -60,6 +60,8 @@ import {
   removeRoomMemberTier,
   setRoomMemberSettings,
   postMemberWelcomeMessage,
+  setRoomJoinNotice,
+  postJoinNoticeMessage,
   setRoomFmMode,
   setRoomPlayMode,
   setRoomAnnouncement,
@@ -1718,6 +1720,7 @@ io.on('connection', (socket) => {
     socket.join(id);
 
     const welcomeMessage = hadActiveSession ? null : postMemberWelcomeMessage(id, userId);
+    const joinNoticeMessage = hadActiveSession ? null : postJoinNoticeMessage(id, userId);
 
     // 无当前歌曲且队列为空时，加入后会异步拉取随机歌曲，先告知客户端"加载中"，
     // 避免播放条在随机歌曲到达前直接消失。
@@ -1754,6 +1757,9 @@ io.on('connection', (socket) => {
       }
       if (welcomeMessage) {
         socket.to(id).emit('chat_message', welcomeMessage);
+      }
+      if (joinNoticeMessage) {
+        socket.to(id).emit('chat_message', joinNoticeMessage);
       }
       // 若管理员已给出解决方案且用户尚未确认，进房时补推弹窗
       if (!readOnly && userId) {
@@ -1918,6 +1924,31 @@ io.on('connection', (socket) => {
       roomId,
       getSocketUserId(socket),
       enabled,
+      socket.id,
+    );
+    if (result.error) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+
+    broadcastRoomUpdate(roomId);
+    callback?.({ success: true, room: getViewerRoomPayload(socket, roomId) });
+  });
+
+  socket.on('set_room_join_notice', ({ enabled, cooldownSec } = {}, callback) => {
+    if (rejectReadOnly(socket, callback)) return;
+    if (rejectRateLimited(socket, limitSocketAction, 'set_room_join_notice', callback)) return;
+
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) {
+      callback?.({ success: false, error: '未加入房间' });
+      return;
+    }
+
+    const result = setRoomJoinNotice(
+      roomId,
+      getSocketUserId(socket),
+      { enabled, cooldownSec },
       socket.id,
     );
     if (result.error) {

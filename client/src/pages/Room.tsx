@@ -274,7 +274,7 @@ export default function Room() {
     noindex: true,
   });
 
-  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, setRoomFmMode, setRoomAnnouncement, setChatHistoryVisibleOnJoin, setSongRequestEnabled, unbanRoomSong, setRoomMemberTier, removeRoomMemberTier, setRoomMemberSettings, loadSongHistory, transferOwner } = useSocket();
+  const { joinRoom, addSong, leaveRoom, listFavorites, setFavorite, importFavorites, renameRoomName, setRoomLock, setRoomFmMode, setRoomAnnouncement, setChatHistoryVisibleOnJoin, setRoomJoinNotice, setSongRequestEnabled, unbanRoomSong, setRoomMemberTier, removeRoomMemberTier, setRoomMemberSettings, loadSongHistory, transferOwner } = useSocket();
   const { applyFavorites } = useFavorites();
 
 
@@ -356,6 +356,7 @@ export default function Room() {
   const [memberSaving, setMemberSaving] = useState(false);
   const [songRequestSaving, setSongRequestSaving] = useState(false);
   const [chatHistorySaving, setChatHistorySaving] = useState(false);
+  const [joinNoticeSaving, setJoinNoticeSaving] = useState(false);
   const lastSongRequestAtRef = useRef(0);
   const playlistSearchScrollRef = useRef<HTMLDivElement>(null);
   const songHistoryItems = useSongHistoryStore((s) => s.songs);
@@ -1135,6 +1136,24 @@ export default function Room() {
       showToast(res.error || '聊天设置失败', 'error');
     }
   }, [chatHistorySaving, setChatHistoryVisibleOnJoin, showToast]);
+
+  const handleSaveJoinNotice = useCallback(async (settings: {
+    enabled: boolean;
+    cooldownMinutes: number;
+  }) => {
+    if (joinNoticeSaving) return;
+    setJoinNoticeSaving(true);
+    const res = await setRoomJoinNotice({
+      enabled: settings.enabled,
+      cooldownSec: settings.cooldownMinutes * 60,
+    });
+    setJoinNoticeSaving(false);
+    if (res.success) {
+      showToast('进房提醒已更新', 'success');
+    } else {
+      showToast(res.error || '进房提醒设置失败', 'error');
+    }
+  }, [joinNoticeSaving, setRoomJoinNotice, showToast]);
 
   const handleSaveSongRequestSettings = useCallback(async (settings: SongRequestSettings) => {
     if (songRequestSaving) return;
@@ -2115,6 +2134,9 @@ export default function Room() {
         announcementSaving={announcementSaving}
         chatHistoryVisibleOnJoin={Boolean(room?.chatHistoryVisibleOnJoin)}
         chatHistorySaving={chatHistorySaving}
+        joinNoticeEnabled={room?.joinNoticeEnabled !== false}
+        joinNoticeCooldownMinutes={Math.floor((room?.joinNoticeCooldownSec ?? 180) / 60)}
+        joinNoticeSaving={joinNoticeSaving}
         songRequest={songRequestSettings}
         songRequestSaving={songRequestSaving}
         bannedSongs={room?.bannedSongs ?? []}
@@ -2128,6 +2150,7 @@ export default function Room() {
         onOpenMemberModal={handleOpenMemberModalFromSettings}
         onSaveAnnouncement={handleSaveAnnouncement}
         onSaveChatHistory={handleSaveChatHistory}
+        onSaveJoinNotice={handleSaveJoinNotice}
         onSaveSongRequest={handleSaveSongRequestSettings}
         onTransferOwner={handleTransferOwner}
       />
