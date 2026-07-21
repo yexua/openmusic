@@ -58,12 +58,21 @@ export default function ChatMessageContextMenu({
 
   if (!open || !pos) return null;
 
-  const viewportW = window.innerWidth;
-  const viewportH = window.innerHeight;
-  const left = Math.min(Math.max(8, pos.x), viewportW - MENU_WIDTH - 8);
-  const top = Math.min(Math.max(8, pos.y), viewportH - 140);
-
   const host = containerRef?.current || document.body;
+
+  // 面板带 backdrop-filter（surface-panel），会让 fixed 以面板为包含块并被
+  // overflow-hidden 裁剪，所以挂在面板内时改用面板内绝对定位。
+  const inPanel = host !== document.body;
+  let left: number;
+  let top: number;
+  if (inPanel) {
+    const rect = host.getBoundingClientRect();
+    left = Math.min(Math.max(8, pos.x - rect.left), rect.width - MENU_WIDTH - 8);
+    top = Math.min(Math.max(8, pos.y - rect.top), rect.height - 140);
+  } else {
+    left = Math.min(Math.max(8, pos.x), window.innerWidth - MENU_WIDTH - 8);
+    top = Math.min(Math.max(8, pos.y), window.innerHeight - 140);
+  }
 
   const itemClass =
     'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-white/90 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent';
@@ -73,7 +82,7 @@ export default function ChatMessageContextMenu({
       ref={panelRef}
       role="menu"
       aria-label="消息菜单"
-      className="fixed z-[90] min-w-[9.25rem] rounded-xl border border-white/10 bg-netease-dark/95 p-1 shadow-2xl backdrop-blur-md animate-fade-in"
+      className={`${inPanel ? 'absolute' : 'fixed'} z-[90] min-w-[9.25rem] rounded-xl border border-white/10 bg-netease-dark/95 p-1 shadow-2xl backdrop-blur-md animate-fade-in`}
       style={{ left, top }}
       onContextMenu={(event) => event.preventDefault()}
     >

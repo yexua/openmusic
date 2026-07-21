@@ -298,6 +298,48 @@ export async function importUserStickerFiles(files: File[]): Promise<UserSticker
   return { imported, skipped, rejected };
 }
 
+async function hashBlobId(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 20);
+}
+
+/** 把聊天消息里的表情包（dataURL 或 http 链接）收藏到自己的表情列表 */
+export async function importUserStickerFromChatImage(
+  imageUrl: string,
+  imageKey?: string | null,
+): Promise<UserStickerImportResult> {
+  let blob: Blob | null = null;
+  if (imageUrl.startsWith('data:')) {
+    blob = parseDataUrl(imageUrl)?.blob ?? null;
+  } else {
+    try {
+      const res = await fetch(imageUrl);
+      if (res.ok) blob = await res.blob();
+    } catch {
+      blob = null;
+    }
+  }
+  if (!blob || !blob.size || blob.size > MAX_STICKER_BYTES) {
+    return { imported: 0, skipped: 0 };
+  }
+
+  let id: string;
+  if (isLocalStickerImageKey(imageKey)) {
+    // 对方也是从本地表情发出的，沿用原始 id 以便去重
+    id = sanitizeStickerId(String(imageKey).slice('local-sticker:'.length));
+  } else {
+    try {
+      id = sanitizeStickerId(`chat_${await hashBlobId(blob)}`);
+    } catch {
+      id = sanitizeStickerId(`chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    }
+  }
+  return importStickerBlob(id, blob, id.slice(0, 12));
+}
+
 export async function importWechatFileHelperSticker(
   src: string,
   dataUrl: string,

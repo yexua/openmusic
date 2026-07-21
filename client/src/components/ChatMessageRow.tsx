@@ -1,5 +1,5 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Reply, Smile } from 'lucide-react';
+import { Check, Loader2, Plus, Reply, Smile } from 'lucide-react';
 import type { ChatMessage, ChatReplyRef, RoomMemberTier, RoomUser } from '../types';
 import QFaceImage from './QFaceImage';
 import Tooltip from './Tooltip';
@@ -16,6 +16,59 @@ import {
   tokenizeMentionSegments,
 } from '../lib/chatPanelUtils';
 import { parseQQFaceTokens, QFaceLoadPriority } from '../lib/qface';
+import { importUserStickerFromChatImage } from '../lib/userStickerStore';
+
+type StickerSaveState = 'idle' | 'saving' | 'done' | 'exists' | 'error';
+
+function StickerSaveButton({ imageUrl, imageKey }: { imageUrl: string; imageKey?: string | null }) {
+  const [state, setState] = useState<StickerSaveState>('idle');
+
+  const handleSave = useCallback(async () => {
+    if (state === 'saving') return;
+    setState('saving');
+    try {
+      const result = await importUserStickerFromChatImage(imageUrl, imageKey);
+      if (result.imported > 0) setState('done');
+      else if (result.skipped > 0) setState('exists');
+      else setState('error');
+    } catch {
+      setState('error');
+    }
+  }, [imageUrl, imageKey, state]);
+
+  const label = state === 'done'
+    ? '已添加'
+    : state === 'exists'
+      ? '已在表情里'
+      : state === 'error'
+        ? '添加失败'
+        : '添加到表情';
+
+  const stateClass = state === 'error'
+    ? 'text-amber-300'
+    : state === 'done' || state === 'exists'
+      ? 'text-emerald-300'
+      : 'text-netease-muted hover:bg-white/10 hover:text-white';
+
+  return (
+    <Tooltip content={label}>
+      <button
+        type="button"
+        onClick={() => { void handleSave(); }}
+        className={`rounded p-0.5 transition-colors ${stateClass}`}
+        aria-label={label}
+      >
+        {state === 'saving' ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : state === 'done' || state === 'exists' ? (
+          <Check className="h-3 w-3" />
+        ) : (
+          <Plus className="h-3 w-3" />
+        )}
+      </button>
+    </Tooltip>
+  );
+}
 
 export type ChatRoomMeta = {
   id: string;
@@ -358,6 +411,9 @@ function ChatMessageRow({
               <Smile className="h-3 w-3" />
             </button>
           </Tooltip>
+          {isStickerImage && msg.imageUrl && !isPureStickerHidden && (
+            <StickerSaveButton imageUrl={msg.imageUrl} imageKey={msg.imageKey} />
+          )}
         </div>
       </div>
 

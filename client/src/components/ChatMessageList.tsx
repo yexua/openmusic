@@ -351,12 +351,11 @@ const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function ChatMe
     if (prev !== undefined && height <= prev + 1) return;
     rowHeightsRef.current.set(messageId, height);
     listRef.current?.resetAfterIndex(index);
-    if (
-      stickToBottomRef.current
-      && initialScrollDoneRef.current
-      && index === messages.length - 1
-    ) {
+    // 贴底时任何行高修正（估算行高→实测、图片加载）都要重新贴底，
+    // 只在最后一行修正时贴底会让首次进房停在离底部差一小截的位置
+    if (stickToBottomRef.current && initialScrollDoneRef.current) {
       requestAnimationFrame(() => {
+        if (!stickToBottomRef.current) return;
         listRef.current?.scrollToItem(messages.length - 1, 'end');
       });
     }

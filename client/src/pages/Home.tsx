@@ -9,7 +9,6 @@ import { createRoom, checkRoom, listRooms } from '../api/meting';
 import { useRoomStore } from '../stores/roomStore';
 import { useSocket } from '../hooks/useSocket';
 import type { RoomSummary } from '../types';
-import { createRandomNickname } from '../lib/randomNickname';
 import { usePageSeo } from '../lib/seo';
 import { partitionRoomsByRecent } from '../lib/recentRooms';
 import { getStoredRoomPassword } from '../lib/roomPassword';
@@ -37,6 +36,22 @@ function GiteeIcon({ className }: { className?: string }) {
 }
 
 const repoLinkCls = 'p-2.5 rounded-full text-white/50 border border-white/5 bg-white/[0.02] hover:text-white hover:bg-white/10 hover:border-white/10 transition-all duration-300';
+
+/** 顶部品牌字：hover 时逐字母点亮成的渐变色 */
+const BRAND_LETTERS = 'OpenMusic'.split('').map((char, i, arr) => {
+  const t = arr.length > 1 ? i / (arr.length - 1) : 0;
+  // 品牌红 → 玫红 → 紫，跨整个词插值
+  const stops = [
+    [255, 77, 85],
+    [244, 114, 182],
+    [192, 132, 252],
+  ];
+  const seg = t * (stops.length - 1);
+  const idx = Math.min(Math.floor(seg), stops.length - 2);
+  const f = seg - idx;
+  const mix = stops[idx].map((v, c) => Math.round(v + (stops[idx + 1][c] - v) * f));
+  return { char, color: `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})` };
+});
 
 const COVER_GRADIENTS = [
   'from-rose-500 to-orange-400',
@@ -195,7 +210,7 @@ const RoomCard = memo(function RoomCard({
                 </span>
               )}
               {/* 房间名 */}
-              <h3 className={`text-[17px] sm:text-lg font-extrabold truncate transition-colors duration-300 ${hardLocked ? 'text-white/50' : 'text-white/90 group-hover:text-white'}`}>
+              <h3 className={`text-xl sm:text-[22px] font-black tracking-tight truncate transition-colors duration-300 ${hardLocked ? 'text-white/50' : 'text-white/95 group-hover:text-white'}`}>
                 {room.name}
               </h3>
               {room.hasPassword && !hardLocked && (
@@ -207,18 +222,17 @@ const RoomCard = memo(function RoomCard({
 
             {room.currentSong ? (
               <div className="min-w-0 pr-2">
-                <p className={`flex items-center gap-1.5 text-sm font-semibold truncate transition-colors ${isActive && !hardLocked ? 'text-white' : 'text-white/80'} group-hover:text-white`}>
+                <p className={`flex items-center gap-1.5 text-[13px] truncate transition-colors ${isActive && !hardLocked ? 'text-white/65' : 'text-white/50'} group-hover:text-white/75`}>
                   {isActive && !hardLocked && (
-                    <span className="flex-shrink-0 text-netease-red text-[13px] animate-pulse">♪</span>
+                    <span className="flex-shrink-0 text-netease-red/80 text-[12px] animate-pulse">♪</span>
                   )}
                   <span className="truncate">{room.currentSong.name}</span>
-                </p>
-                <p className="text-[13px] text-white/40 truncate mt-0.5 group-hover:text-white/60 transition-colors">
-                  {room.currentSong.artist}
+                  <span className="flex-shrink-0 text-white/25">·</span>
+                  <span className="truncate text-white/35 group-hover:text-white/50 transition-colors">{room.currentSong.artist}</span>
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-white/30 mt-1 italic group-hover:text-white/50 transition-colors">等待点播...</p>
+              <p className="text-[13px] text-white/30 mt-0.5 italic group-hover:text-white/50 transition-colors">等待点播...</p>
             )}
 
             {/* 底部状态栏 */}
@@ -330,6 +344,30 @@ export default function Home() {
   const [siteAnnouncement, setSiteAnnouncement] = useState<SiteAnnouncement | null>(null);
   const [siteAnnouncementOpen, setSiteAnnouncementOpen] = useState(false);
 
+  const heroCopyRef = useRef<HTMLParagraphElement | null>(null);
+  const handleHeroCopyMove = useCallback((e: React.MouseEvent) => {
+    const el = heroCopyRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty('--hx', `${((e.clientX - rect.left) / rect.width) * 100}%`);
+    el.style.setProperty('--hy', `${((e.clientY - rect.top) / rect.height) * 100}%`);
+  }, []);
+
+  const handleBtnTilt = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width - 0.5;
+    const py = (e.clientY - rect.top) / rect.height - 0.5;
+    el.style.setProperty('--brx', `${(-py * 16).toFixed(2)}deg`);
+    el.style.setProperty('--bry', `${(px * 12).toFixed(2)}deg`);
+  }, []);
+
+  const resetBtnTilt = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const el = e.currentTarget;
+    el.style.setProperty('--brx', '0deg');
+    el.style.setProperty('--bry', '0deg');
+  }, []);
+
   const fetchRooms = useCallback(async (silent = false) => {
     if (!silent) setRoomsLoading(true);
     try {
@@ -375,20 +413,11 @@ export default function Home() {
     setSiteAnnouncementOpen(false);
   }, [siteAnnouncement?.id]);
 
-  const ensureNickname = () => {
-    const trimmed = nickname.trim();
-    if (trimmed) return trimmed;
-    const generated = createRandomNickname();
-    setNickname(generated);
-    return generated;
-  };
-
   const goToRoom = (roomId: string, password?: string) => {
     navigate(`/room/${roomId}`, { state: password ? { password } : undefined });
   };
 
   const handleCreate = async () => {
-    ensureNickname();
     setActionLoading(true);
     setError('');
     try {
@@ -405,7 +434,6 @@ export default function Home() {
   };
 
   const handleJoinByCode = async () => {
-    ensureNickname();
     const code = joinCode.trim().toUpperCase();
     if (!code) {
       setError('请输入房间号');
@@ -429,10 +457,6 @@ export default function Home() {
   };
 
   const handleRoomCardClick = useCallback((room: RoomSummary) => {
-    const trimmed = nickname.trim();
-    if (!trimmed) {
-      setNickname(createRandomNickname());
-    }
     setError('');
     const storedPassword = getStoredRoomPassword(room.id);
     if (room.hasPassword && !storedPassword) {
@@ -440,7 +464,7 @@ export default function Home() {
       return;
     }
     goToRoom(room.id, storedPassword);
-  }, [nickname, navigate, setNickname]);
+  }, [navigate]);
 
   const { recent: recentRooms, others: otherRooms } = useMemo(() => {
     const { recent, others } = partitionRoomsByRecent(rooms);
@@ -466,8 +490,20 @@ export default function Home() {
         <div className="bg-white/[0.03] border border-white/10 backdrop-blur-xl rounded-full px-5 py-3 flex items-center justify-between shadow-2xl">
           <div className="flex items-center gap-3">
             <BrandMark className="h-10 w-10 drop-shadow-[0_8px_20px_rgba(255,77,85,.18)]" />
-            <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-              OpenMusic
+            <span className="brand-wordmark text-xl font-extrabold tracking-tight select-none" aria-label="OpenMusic">
+              {BRAND_LETTERS.map((letter, index) => (
+                <span
+                  key={index}
+                  aria-hidden
+                  className="brand-letter"
+                  style={{
+                    transitionDelay: `${index * 28}ms`,
+                    ['--brand-c' as string]: letter.color,
+                  }}
+                >
+                  {letter.char}
+                </span>
+              ))}
             </span>
           </div>
 
@@ -517,36 +553,42 @@ export default function Home() {
             </div>
 
             <h1 className="relative text-4xl sm:text-5xl lg:text-[68px] font-black tracking-tight leading-[1.1] mb-5">
-              和喜欢的人 <br className="sm:hidden" />
-              <span className="relative inline-block sm:ml-4">
+              <span aria-label="和喜欢的人">
+                {'和喜欢的人'.split('').map((char, index) => (
+                  <span key={index} aria-hidden className="hero-char">{char}</span>
+                ))}
+              </span>
+              {' '}
+              <br className="sm:hidden" />
+              <span className="hero-gradient relative inline-block sm:ml-4">
                 {/* 底部辉光 */}
                 <span
                   aria-hidden
-                  className="absolute inset-0 text-transparent bg-clip-text bg-gradient-to-r from-netease-red via-rose-400 to-purple-500 blur-2xl opacity-60 select-none animate-gradient-x"
-                  style={{ backgroundSize: '200% auto' }}
+                  className="hero-gradient-glow hero-gradient-text absolute inset-0 text-transparent bg-clip-text blur-2xl opacity-60 select-none transition-opacity duration-500"
                 >
                   听同一首歌
                 </span>
-                <span
-                  className="relative text-transparent bg-clip-text bg-gradient-to-r from-netease-red via-rose-400 to-purple-500 animate-gradient-x"
-                  style={{ backgroundSize: '200% auto' }}
-                >
+                <span className="hero-gradient-text relative text-transparent bg-clip-text">
                   听同一首歌
                 </span>
               </span>
             </h1>
 
-            <p className="text-[15px] sm:text-lg text-white/55 mb-10 max-w-xl leading-relaxed">
+            <p
+              ref={heroCopyRef}
+              onMouseMove={handleHeroCopyMove}
+              className="hero-copy text-[15px] sm:text-lg mb-10 max-w-xl leading-relaxed"
+            >
               全网曲库秒搜秒播，歌词实时同步，打破距离的限制，创建属于你们的
               <br />
-              <span className="text-white/80 font-medium">专属音乐宇宙</span>。
+              <span className="font-semibold">专属音乐宇宙</span>。
             </p>
 
             {/* 居中控制台 (Command Bar) */}
             <div className="w-full bg-white/[0.03] border border-white/10 rounded-[28px] sm:rounded-full p-2.5 flex flex-col sm:flex-row gap-2.5 shadow-2xl backdrop-blur-xl">
               <div className="relative flex-1 group">
                 <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
-                  <Users className="w-5 h-5 text-white/40 group-focus-within:text-netease-red transition-colors" />
+                  <Users className="w-5 h-5 text-white/40 group-focus-within:text-netease-red group-focus-within:scale-110 transition-all duration-300" />
                 </div>
                 <input
                   type="text"
@@ -554,24 +596,29 @@ export default function Home() {
                   onChange={(e) => { setNickname(e.target.value); setError(''); }}
                   placeholder="给自己起个昵称..."
                   maxLength={20}
-                  className="w-full h-12 sm:h-14 bg-transparent pl-14 pr-6 text-white placeholder:text-white/30 outline-none focus:bg-white/[0.04] rounded-full transition-all text-[15px]"
+                  className="w-full h-12 sm:h-14 bg-transparent pl-14 pr-6 text-white caret-netease-red placeholder:text-white/30 outline-none focus:bg-white/[0.04] rounded-full transition-all text-[15px]"
                 />
               </div>
               <div className="flex gap-2.5">
                 <button
                   type="button"
                   onClick={() => { setError(''); setShowCreate(true); }}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 sm:px-8 h-12 sm:h-14 rounded-full bg-netease-red hover:bg-netease-red/85 text-white font-semibold shadow-lg shadow-netease-red/25 hover:shadow-netease-red/40 transition-all active:scale-95 whitespace-nowrap"
+                  onMouseMove={handleBtnTilt}
+                  onMouseLeave={resetBtnTilt}
+                  className="btn-shine btn-tilt group/create flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 sm:px-8 h-12 sm:h-14 rounded-full bg-netease-red hover:bg-netease-red/90 text-white font-semibold shadow-lg shadow-netease-red/25 hover:shadow-xl hover:shadow-netease-red/45 whitespace-nowrap"
                 >
-                  <Plus className="w-5 h-5" />
+                  <Plus className="w-5 h-5 transition-transform duration-300 ease-out group-hover/create:rotate-90" />
                   创建房间
                 </button>
                 <button
                   type="button"
                   onClick={() => { setError(''); setShowJoin(true); }}
-                  className="flex-1 sm:flex-none flex items-center justify-center px-6 sm:px-8 h-12 sm:h-14 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-white font-medium transition-all active:scale-95 whitespace-nowrap"
+                  onMouseMove={handleBtnTilt}
+                  onMouseLeave={resetBtnTilt}
+                  className="btn-shine btn-tilt group/join flex-1 sm:flex-none flex items-center justify-center px-6 sm:px-8 h-12 sm:h-14 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 hover:border-white/25 text-white font-medium whitespace-nowrap"
                 >
                   加入
+                  <ArrowRight className="h-4 w-0 ml-0 opacity-0 -translate-x-1 group-hover/join:w-4 group-hover/join:ml-1.5 group-hover/join:opacity-100 group-hover/join:translate-x-0 transition-all duration-300 ease-out" />
                 </button>
               </div>
             </div>
