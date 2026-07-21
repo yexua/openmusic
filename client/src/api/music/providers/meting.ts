@@ -36,8 +36,24 @@ function isMetingResolverUrl(url?: string): boolean {
   }
 }
 
+/**
+ * 网易云「外链直连」假地址：上游拿不到真实 CDN 时常回落成
+ * music.163.com/song/media/outer/url?id=xxx.mp3，实际访问 404，不可播。
+ */
+function isNeteaseOuterMediaUrl(url?: string): boolean {
+  if (!url?.startsWith('http')) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== 'music.163.com' && host !== 'www.music.163.com') return false;
+    return /\/song\/media\/outer\/url/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function isDirectPlayableUrl(url?: string): boolean {
-  return Boolean(url?.startsWith('http') && !isMetingResolverUrl(url));
+  return Boolean(url?.startsWith('http') && !isMetingResolverUrl(url) && !isNeteaseOuterMediaUrl(url));
 }
 
 function normalizeMetingTextUrl(raw: string): string {

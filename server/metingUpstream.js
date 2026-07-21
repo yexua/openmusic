@@ -213,6 +213,20 @@ export async function fetchMetingApi(query, options = {}, timeoutMs = 10000) {
             emptyUrlResponse = response;
             continue;
           }
+          // 网易云 outer/url 假直链（实为 404），当作空结果继续换上游
+          try {
+            const parsed = new URL(normalized.startsWith('@') ? normalized.slice(1).trim() : normalized);
+            const host = parsed.hostname.toLowerCase();
+            if (
+              (host === 'music.163.com' || host === 'www.music.163.com')
+              && /\/song\/media\/outer\/url/i.test(parsed.pathname)
+            ) {
+              emptyUrlResponse = response;
+              continue;
+            }
+          } catch {
+            // 非 URL 文本交由调用方处理
+          }
         } catch {
           // 无法读取时按原响应返回，交由调用方处理
         }

@@ -507,6 +507,20 @@ function normalizeMetingResolvedUrl(raw) {
   return text.startsWith('@') ? text.slice(1).trim() : text;
 }
 
+/** 网易云 outer/url 假直链（实为 404），当作无音源 */
+function isNeteaseOuterMediaUrl(url) {
+  const text = String(url || '').trim();
+  if (!text.startsWith('http')) return false;
+  try {
+    const parsed = new URL(text);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== 'music.163.com' && host !== 'www.music.163.com') return false;
+    return /\/song\/media\/outer\/url/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function isUnresolvedMetingMediaUrl(url) {
   const query = parseMetingMediaQuery(url);
   if (!query) return false;
@@ -529,6 +543,7 @@ async function resolveMetingMediaUrl(query, depth = 0) {
   if (response.status >= 300 && response.status < 400) {
     const location = normalizeMetingResolvedUrl(response.headers.get('location'));
     if (!location) throw new Error('Meting 返回空重定向');
+    if (isNeteaseOuterMediaUrl(location)) throw new Error('Meting 返回不可播外链');
     const nested = parseMetingMediaQuery(location);
     if (nested && isUnresolvedMetingMediaUrl(location)) {
       return resolveMetingMediaUrl(nested, depth + 1);
@@ -538,6 +553,7 @@ async function resolveMetingMediaUrl(query, depth = 0) {
 
   const text = normalizeMetingResolvedUrl(await response.text());
   if (!text.startsWith('http')) throw new Error('Meting 未返回有效媒体地址');
+  if (isNeteaseOuterMediaUrl(text)) throw new Error('Meting 返回不可播外链');
 
   const nested = parseMetingMediaQuery(text);
   if (nested && isUnresolvedMetingMediaUrl(text)) {
@@ -567,6 +583,8 @@ async function resolveMediaProxyFetchUrl(fetchUrl, thumbPx = 0) {
 async function finalizeMetingTextResponse(body, metingType) {
   const normalized = normalizeMetingResolvedUrl(body);
   if (metingType !== 'url' || !normalized.startsWith('http')) return normalized;
+  // outer/url 不可播：返回空，客户端按无音源处理并切歌
+  if (isNeteaseOuterMediaUrl(normalized)) return '';
   if (!isUnresolvedMetingMediaUrl(normalized)) return normalized;
 
   const nested = parseMetingMediaQuery(normalized);

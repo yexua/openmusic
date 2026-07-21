@@ -287,7 +287,15 @@ async function fetchSongUrlOnce(
     urlCache.delete(key);
   } else {
     const cached = urlCache.get(key);
-    if (cached) return { ok: true, url: cached };
+    if (cached) {
+      // 历史缓存里的网易 outer/url 假直链不可播，丢弃后重新取链
+      if (/music\.163\.com\/song\/media\/outer\/url/i.test(cached)) {
+        urlCache.delete(key);
+        persistUrlCacheToStorage();
+      } else {
+        return { ok: true, url: cached };
+      }
+    }
   }
 
   const pendingKey = options.refresh ? `${key}:refresh` : key;
