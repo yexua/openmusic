@@ -14,6 +14,8 @@ const SECRET_FIELDS = new Set([
   'qiniuSecretKey',
   'apihzId',
   'apihzKey',
+  'linuxdoClientSecret',
+  'githubClientSecret',
 ]);
 const QINIU_ZONES = new Set(['z0', 'z1', 'z2', 'na0', 'as0']);
 const ENC_PREFIX = 'enc:v1:';
@@ -53,6 +55,23 @@ function envDefaults() {
   return {
     roomEmptyTtlMs: envRoomEmptyTtlMs(),
     roomRestartGraceMs: envRoomRestartGraceMs(),
+    // Linux.do OAuth2（房主身份绑定 / 后台登录）：全部留空表示未配置、功能自动关闭。
+    // 需要先在 https://connect.linux.do 注册应用拿到 client_id / secret / 回调地址，
+    // 并向 Linux.do 核实真实的授权 / 令牌 / 用户信息接口地址后再填写，不要照抄示例值。
+    linuxdoClientId: envText('LINUXDO_CLIENT_ID'),
+    linuxdoClientSecret: envText('LINUXDO_CLIENT_SECRET'),
+    linuxdoRedirectUri: envText('LINUXDO_REDIRECT_URI'),
+    linuxdoAuthorizeUrl: envText('LINUXDO_AUTHORIZE_URL'),
+    linuxdoTokenUrl: envText('LINUXDO_TOKEN_URL'),
+    linuxdoUserInfoUrl: envText('LINUXDO_USERINFO_URL'),
+    linuxdoScope: envText('LINUXDO_SCOPE', 'user'),
+    // GitHub OAuth（房主身份绑定 / 后台登录）：只需在 https://github.com/settings/developers
+    // 注册一个 OAuth App 拿到 client_id / secret，授权 / 令牌 / 用户信息接口地址是 GitHub
+    // 公开且稳定的固定地址，写死在 server/githubAuth.js 里，不需要在这里配置。
+    githubClientId: envText('GITHUB_CLIENT_ID'),
+    githubClientSecret: envText('GITHUB_CLIENT_SECRET'),
+    githubRedirectUri: envText('GITHUB_REDIRECT_URI'),
+    githubScope: envText('GITHUB_SCOPE', 'read:user'),
     /** 是否开放 SVIP 音质（网易沉浸环绕声/超清母带/杜比；QQ 臻品全景声/臻品母带） */
     svipQualityEnabled: envText('SVIP_QUALITY_ENABLED') === '1' || envText('SVIP_QUALITY_ENABLED').toLowerCase() === 'true',
     metingApiUrl: envText('METING_API_URL'),
@@ -211,6 +230,17 @@ function normalize(config) {
     roomRestartGraceMs: Number.isFinite(roomRestartGraceMs)
       ? Math.max(0, Math.min(Math.round(roomRestartGraceMs), 7 * 24 * 60 * 60 * 1000))
       : 24 * 60 * 60 * 1000,
+    linuxdoClientId: String(config.linuxdoClientId || '').trim(),
+    linuxdoClientSecret: String(config.linuxdoClientSecret || '').trim(),
+    linuxdoRedirectUri: String(config.linuxdoRedirectUri || '').trim(),
+    linuxdoAuthorizeUrl: String(config.linuxdoAuthorizeUrl || '').trim(),
+    linuxdoTokenUrl: String(config.linuxdoTokenUrl || '').trim(),
+    linuxdoUserInfoUrl: String(config.linuxdoUserInfoUrl || '').trim(),
+    linuxdoScope: String(config.linuxdoScope || 'user').trim() || 'user',
+    githubClientId: String(config.githubClientId || '').trim(),
+    githubClientSecret: String(config.githubClientSecret || '').trim(),
+    githubRedirectUri: String(config.githubRedirectUri || '').trim(),
+    githubScope: String(config.githubScope || 'read:user').trim() || 'read:user',
     svipQualityEnabled: config.svipQualityEnabled === true
       || config.svipQualityEnabled === 1
       || String(config.svipQualityEnabled || '').trim().toLowerCase() === 'true'
@@ -239,6 +269,23 @@ function normalize(config) {
 
 export function getRuntimeConfig() {
   return normalize({ ...envDefaults(), ...getPersisted() });
+}
+
+/** Linux.do OAuth 是否已具备可用配置（客户端凭据 + 三个接口地址均已填写） */
+export function isLinuxdoConfigured(config = getRuntimeConfig()) {
+  return Boolean(
+    config.linuxdoClientId
+    && config.linuxdoClientSecret
+    && config.linuxdoRedirectUri
+    && config.linuxdoAuthorizeUrl
+    && config.linuxdoTokenUrl
+    && config.linuxdoUserInfoUrl,
+  );
+}
+
+/** GitHub OAuth 是否已具备可用配置（只需要客户端凭据 + 回调地址，接口地址是固定的） */
+export function isGithubConfigured(config = getRuntimeConfig()) {
+  return Boolean(config.githubClientId && config.githubClientSecret && config.githubRedirectUri);
 }
 
 function validateHttpUrl(value, label, { allowEmpty = false, allowList = false, allowPrivate = false } = {}) {

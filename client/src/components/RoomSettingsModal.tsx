@@ -6,6 +6,20 @@ import type { BannedSong, RoomUser } from '../types';
 import type { DislikeSkipMode } from '../lib/dislikeSkip';
 import SourceBadge from './SourceBadge';
 import ConfirmModal from './ConfirmModal';
+import {
+  fetchLinuxdoStatus,
+  startLinuxdoBind,
+  startLinuxdoRecover,
+  unbindLinuxdo,
+  type LinuxdoBinding,
+} from '../lib/linuxdoAuth';
+import {
+  fetchGithubStatus,
+  startGithubBind,
+  startGithubRecover,
+  unbindGithub,
+  type GithubBinding,
+} from '../lib/githubAuth';
 
 const ANNOUNCEMENT_MAX_LENGTH = 2000;
 const MIN_STAY_MINUTES_MAX = 24 * 60;
@@ -16,7 +30,7 @@ const JOIN_NOTICE_COOLDOWN_MINUTES_MAX = 24 * 60;
 const COOLDOWN_OPTIONS = [0, 10, 30, 60, 120] as const;
 const QUEUE_LIMIT_OPTIONS = [50, 100, 200] as const;
 
-type SettingsTab = 'fm' | 'member' | 'transfer' | 'announcement' | 'chat' | 'songRequest';
+type SettingsTab = 'fm' | 'member' | 'transfer' | 'identity' | 'announcement' | 'chat' | 'songRequest';
 
 export interface SongRequestSettings {
   enabled: boolean;
@@ -77,6 +91,7 @@ interface Props {
   users?: RoomUser[];
   myUserId?: string | null;
   transferSaving?: boolean;
+  roomId?: string;
   onClose: () => void;
   onSaveFmMode: (mode: string) => void;
   onOpenMemberModal: () => void;
@@ -217,6 +232,7 @@ export default function RoomSettingsModal({
   users = [],
   myUserId = null,
   transferSaving = false,
+  roomId,
   onClose,
   onSaveFmMode,
   onOpenMemberModal,
@@ -234,6 +250,12 @@ export default function RoomSettingsModal({
   const [draftSongRequest, setDraftSongRequest] = useState(songRequest);
   const [transferTargetId, setTransferTargetId] = useState<string | null>(null);
   const [confirmTransfer, setConfirmTransfer] = useState(false);
+  const [linuxdoEnabled, setLinuxdoEnabled] = useState(false);
+  const [linuxdoBound, setLinuxdoBound] = useState<LinuxdoBinding | null>(null);
+  const [linuxdoUnbinding, setLinuxdoUnbinding] = useState(false);
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [githubBound, setGithubBound] = useState<GithubBinding | null>(null);
+  const [githubUnbinding, setGithubUnbinding] = useState(false);
   const wasOpenRef = useRef(false);
   const appliedAnnouncementRef = useRef({ enabled: announcementEnabled, text: announcementText });
   const appliedSongRequestRef = useRef(songRequest);
@@ -260,8 +282,11 @@ export default function RoomSettingsModal({
       items.push({ id: 'chat', label: '聊天' });
       items.push({ id: 'songRequest', label: '点歌' });
     }
+    if (linuxdoEnabled || githubEnabled) {
+      items.push({ id: 'identity', label: '身份' });
+    }
     return items;
-  }, [isOwner, canModerate]);
+  }, [isOwner, canModerate, linuxdoEnabled, githubEnabled]);
 
   // 仅在弹框从关闭→打开时初始化 tab/草稿，避免 room_update 反复把 tab 打回「漫游」
   useEffect(() => {
@@ -299,6 +324,24 @@ export default function RoomSettingsModal({
       setConfirmTransfer(false);
     }
   }, [open, transferCandidates, transferTargetId]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetchLinuxdoStatus().then((status) => {
+      if (cancelled) return;
+      setLinuxdoEnabled(status.enabled);
+      setLinuxdoBound(status.bound);
+    });
+    void fetchGithubStatus().then((status) => {
+      if (cancelled) return;
+      setGithubEnabled(status.enabled);
+      setGithubBound(status.bound);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // 打开期间：服务端公告变化时，若用户未编辑（草稿仍等于上次应用值），则跟随服务端
   useEffect(() => {
@@ -531,6 +574,132 @@ export default function RoomSettingsModal({
                   {transferSaving ? '转让中…' : '转让房主'}
                 </button>
               </div>
+            </section>
+          )}
+
+          {activeTab === 'identity' && (
+            <section className="space-y-5">
+              {linuxdoEnabled && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Crown className="h-4 w-4 text-amber-400" />
+                    <h3 className="text-sm font-medium text-white">Linux.do 身份</h3>
+                  </div>
+                  {isOwner ? (
+                    <>
+                      <p className="mb-3 text-xs text-netease-muted">
+                        绑定 Linux.do 账号后，即使换设备或清除了浏览器 Cookie，也能用同一个 Linux.do 账号登录找回这个房间的房主身份。
+                      </p>
+                      {linuxdoBound ? (
+                        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-white">已绑定：{linuxdoBound.username || linuxdoBound.linuxdoId}</p>
+                            <p className="mt-0.5 text-[11px] text-netease-muted">
+                              {new Date(linuxdoBound.boundAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={linuxdoUnbinding}
+                            onClick={async () => {
+                              setLinuxdoUnbinding(true);
+                              const result = await unbindLinuxdo();
+                              setLinuxdoUnbinding(false);
+                              if (result.success) setLinuxdoBound(null);
+                            }}
+                            className="flex-shrink-0 rounded-lg px-3 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            {linuxdoUnbinding ? '解绑中…' : '解绑'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!roomId}
+                          onClick={() => roomId && startLinuxdoBind(roomId, window.location.pathname)}
+                          className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+                        >
+                          绑定 Linux.do 账号
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="mb-3 text-xs text-netease-muted">
+                        如果你是这个房间的房主，但因为换设备或清除 Cookie 而不再被识别为房主，可以用当初绑定的 Linux.do 账号登录找回身份。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => startLinuxdoRecover(window.location.pathname)}
+                        className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white transition-colors hover:bg-white/[0.06]"
+                      >
+                        用 Linux.do 找回房间身份
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {githubEnabled && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Crown className="h-4 w-4 text-amber-400" />
+                    <h3 className="text-sm font-medium text-white">GitHub 身份</h3>
+                  </div>
+                  {isOwner ? (
+                    <>
+                      <p className="mb-3 text-xs text-netease-muted">
+                        绑定 GitHub 账号后，即使换设备或清除了浏览器 Cookie，也能用同一个 GitHub 账号登录找回这个房间的房主身份。
+                      </p>
+                      {githubBound ? (
+                        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-white">已绑定：{githubBound.username || githubBound.githubId}</p>
+                            <p className="mt-0.5 text-[11px] text-netease-muted">
+                              {new Date(githubBound.boundAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={githubUnbinding}
+                            onClick={async () => {
+                              setGithubUnbinding(true);
+                              const result = await unbindGithub();
+                              setGithubUnbinding(false);
+                              if (result.success) setGithubBound(null);
+                            }}
+                            className="flex-shrink-0 rounded-lg px-3 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            {githubUnbinding ? '解绑中…' : '解绑'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!roomId}
+                          onClick={() => roomId && startGithubBind(roomId, window.location.pathname)}
+                          className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
+                        >
+                          绑定 GitHub 账号
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="mb-3 text-xs text-netease-muted">
+                        如果你是这个房间的房主，但因为换设备或清除 Cookie 而不再被识别为房主，可以用当初绑定的 GitHub 账号登录找回身份。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => startGithubRecover(window.location.pathname)}
+                        className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white transition-colors hover:bg-white/[0.06]"
+                      >
+                        用 GitHub 找回房间身份
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </section>
           )}
 

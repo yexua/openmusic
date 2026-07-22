@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { KeyOutlined } from '@ant-design/icons';
-import { App, Button, Card, Col, Input, Row, Space, Tag, Typography } from 'antd';
+import { App, Button, Card, Col, Divider, Input, Row, Space, Tag, Typography } from 'antd';
 import { adminFetch } from './utils';
+
+interface LinuxdoAdminBinding {
+  id: string;
+  username: string;
+  avatarUrl: string;
+  boundAt: number;
+}
+
+type GithubAdminBinding = LinuxdoAdminBinding;
 
 export default function CredentialsPanel({
   adminUsername,
@@ -25,10 +34,73 @@ export default function CredentialsPanel({
   const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const touchedRef = useRef(false);
+  const [linuxdoEnabled, setLinuxdoEnabled] = useState(false);
+  const [linuxdoBound, setLinuxdoBound] = useState<LinuxdoAdminBinding | null>(null);
+  const [linuxdoUnbinding, setLinuxdoUnbinding] = useState(false);
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [githubBound, setGithubBound] = useState<GithubAdminBinding | null>(null);
+  const [githubUnbinding, setGithubUnbinding] = useState(false);
 
   useEffect(() => {
     if (!touchedRef.current) setUsername(adminUsername);
   }, [adminUsername]);
+
+  useEffect(() => {
+    void adminFetch<{ enabled: boolean; bound: LinuxdoAdminBinding | null }>('/api/admin/linuxdo/status')
+      .then((status) => {
+        setLinuxdoEnabled(status.enabled);
+        setLinuxdoBound(status.bound);
+      })
+      .catch(() => setLinuxdoEnabled(false));
+    void adminFetch<{ enabled: boolean; bound: GithubAdminBinding | null }>('/api/admin/github/status')
+      .then((status) => {
+        setGithubEnabled(status.enabled);
+        setGithubBound(status.bound);
+      })
+      .catch(() => setGithubEnabled(false));
+
+    const url = new URL(window.location.href);
+    const linuxdoResult = url.searchParams.get('linuxdo');
+    const githubResult = url.searchParams.get('github');
+    const showBindResult = (provider: string, result: string) => {
+      if (result === 'bound') message.success(`已绑定 ${provider} 账号`);
+      else if (result === 'expired') message.error('会话已过期，请重新登录后绑定');
+      else if (result === 'error') message.error(`绑定 ${provider} 账号失败，请稍后再试`);
+    };
+    if (linuxdoResult) showBindResult('Linux.do', linuxdoResult);
+    if (githubResult) showBindResult('GitHub', githubResult);
+    if (linuxdoResult || githubResult) {
+      url.searchParams.delete('linuxdo');
+      url.searchParams.delete('github');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  }, [message]);
+
+  const unbindLinuxdo = async () => {
+    setLinuxdoUnbinding(true);
+    try {
+      await adminFetch('/api/admin/linuxdo/unbind', { method: 'POST' });
+      setLinuxdoBound(null);
+      message.success('已解绑 Linux.do 账号');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '解绑失败');
+    } finally {
+      setLinuxdoUnbinding(false);
+    }
+  };
+
+  const unbindGithub = async () => {
+    setGithubUnbinding(true);
+    try {
+      await adminFetch('/api/admin/github/unbind', { method: 'POST' });
+      setGithubBound(null);
+      message.success('已解绑 GitHub 账号');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '解绑失败');
+    } finally {
+      setGithubUnbinding(false);
+    }
+  };
 
   const save = async () => {
     if (saving) return;
@@ -120,7 +192,75 @@ export default function CredentialsPanel({
     </Space>
   );
 
-  if (bare) return body;
+  const oauthSections = (
+    <>
+      {linuxdoEnabled && (
+        <>
+          <Divider style={{ margin: '20px 0 16px' }} />
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            Linux.do 登录
+          </Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            绑定后可以用这个 Linux.do 账号直接登录后台，作为账号密码之外的另一种登录方式；不影响账号密码本身。
+          </Typography.Paragraph>
+          {linuxdoBound ? (
+            <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+              <span>
+                已绑定：{linuxdoBound.username || linuxdoBound.id}
+                <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                  {new Date(linuxdoBound.boundAt).toLocaleString()}
+                </Typography.Text>
+              </span>
+              <Button danger loading={linuxdoUnbinding} onClick={() => void unbindLinuxdo()}>
+                解绑
+              </Button>
+            </Space>
+          ) : (
+            <Button onClick={() => { window.location.href = '/api/admin/linuxdo/bind/start'; }}>
+              绑定 Linux.do 账号
+            </Button>
+          )}
+        </>
+      )}
+      {githubEnabled && (
+        <>
+          <Divider style={{ margin: '20px 0 16px' }} />
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            GitHub 登录
+          </Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            绑定后可以用这个 GitHub 账号直接登录后台，作为账号密码之外的另一种登录方式；不影响账号密码本身。
+          </Typography.Paragraph>
+          {githubBound ? (
+            <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+              <span>
+                已绑定：{githubBound.username || githubBound.id}
+                <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                  {new Date(githubBound.boundAt).toLocaleString()}
+                </Typography.Text>
+              </span>
+              <Button danger loading={githubUnbinding} onClick={() => void unbindGithub()}>
+                解绑
+              </Button>
+            </Space>
+          ) : (
+            <Button onClick={() => { window.location.href = '/api/admin/github/bind/start'; }}>
+              绑定 GitHub 账号
+            </Button>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  if (bare) {
+    return (
+      <>
+        {body}
+        {oauthSections}
+      </>
+    );
+  }
 
   return (
     <Card
@@ -139,6 +279,7 @@ export default function CredentialsPanel({
         密码以 scrypt 哈希存 Redis（不落盘）；新密码至少 8 位且不能是默认密码；修改后其它会话立即失效
       </Typography.Paragraph>
       {body}
+      {oauthSections}
     </Card>
   );
 }

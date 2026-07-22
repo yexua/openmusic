@@ -64,6 +64,20 @@ function normalizeRecord(parsed) {
     updatedAt: Number(parsed.updatedAt) || Date.now(),
     // 旧记录无字段视为已完成改密；显式 true 才强制
     mustChange: parsed.mustChange === true,
+    linuxdo: normalizeOAuthBinding(parsed.linuxdo),
+    github: normalizeOAuthBinding(parsed.github),
+  };
+}
+
+function normalizeOAuthBinding(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    username: String(raw.username || '').trim(),
+    avatarUrl: String(raw.avatarUrl || '').trim(),
+    boundAt: Number(raw.boundAt) || Date.now(),
   };
 }
 
@@ -205,10 +219,89 @@ export async function setAdminCredentials({ username, password, currentPassword 
   if (!verified) return { success: false, error: '当前密码错误' };
 
   const record = await buildRecord(nextUsername, nextPassword, { mustChange: false });
+  // 改密不应顺带解绑 Linux.do / GitHub
+  if (current.linuxdo) record.linuxdo = current.linuxdo;
+  if (current.github) record.github = current.github;
   const redisPersisted = await writeToRedis(record);
   if (!redisPersisted) return { success: false, error: '管理员凭据写入 Redis 失败' };
 
   current = { ...record, source: 'redis' };
   deleteLegacyLocalFile();
   return { success: true, username: nextUsername, persisted: true, mustChange: false };
+}
+
+/** 后台管理员当前绑定的 Linux.do 账号（未绑定为 null） */
+export function getAdminLinuxdoBinding() {
+  return current?.linuxdo || null;
+}
+
+/** 是否已有管理员账号绑定了这个 Linux.do 账号（用于「Linux.do 一键登录后台」） */
+export function isLinuxdoIdBoundToAdmin(linuxdoId) {
+  const id = String(linuxdoId || '').trim();
+  return Boolean(id && current?.linuxdo?.id === id);
+}
+
+/** 绑定当前管理员账号到一个 Linux.do 账号（覆盖式，一次只允许绑一个） */
+export async function bindAdminLinuxdo({ id, username, avatarUrl }) {
+  if (!current) return { success: false, error: '管理后台未启用' };
+  const linuxdoId = String(id || '').trim();
+  if (!linuxdoId) return { success: false, error: '无效的 Linux.do 账号' };
+
+  const record = { ...current, linuxdo: { id: linuxdoId, username: String(username || ''), avatarUrl: String(avatarUrl || ''), boundAt: Date.now() } };
+  const { source: _s, ...payload } = record;
+  const persisted = await writeToRedis(payload);
+  if (!persisted) return { success: false, error: '绑定写入 Redis 失败' };
+
+  current = { ...record, source: 'redis' };
+  return { success: true, linuxdo: current.linuxdo };
+}
+
+/** 解绑管理员账号的 Linux.do 登录 */
+export async function unbindAdminLinuxdo() {
+  if (!current) return { success: false, error: '管理后台未启用' };
+  const record = { ...current, linuxdo: null };
+  const { source: _s, ...payload } = record;
+  const persisted = await writeToRedis(payload);
+  if (!persisted) return { success: false, error: '解绑写入 Redis 失败' };
+
+  current = { ...record, source: 'redis' };
+  return { success: true };
+}
+
+/** 后台管理员当前绑定的 GitHub 账号（未绑定为 null） */
+export function getAdminGithubBinding() {
+  return current?.github || null;
+}
+
+/** 是否已有管理员账号绑定了这个 GitHub 账号（用于「GitHub 一键登录后台」） */
+export function isGithubIdBoundToAdmin(githubId) {
+  const id = String(githubId || '').trim();
+  return Boolean(id && current?.github?.id === id);
+}
+
+/** 绑定当前管理员账号到一个 GitHub 账号（覆盖式，一次只允许绑一个） */
+export async function bindAdminGithub({ id, username, avatarUrl }) {
+  if (!current) return { success: false, error: '管理后台未启用' };
+  const githubId = String(id || '').trim();
+  if (!githubId) return { success: false, error: '无效的 GitHub 账号' };
+
+  const record = { ...current, github: { id: githubId, username: String(username || ''), avatarUrl: String(avatarUrl || ''), boundAt: Date.now() } };
+  const { source: _s, ...payload } = record;
+  const persisted = await writeToRedis(payload);
+  if (!persisted) return { success: false, error: '绑定写入 Redis 失败' };
+
+  current = { ...record, source: 'redis' };
+  return { success: true, github: current.github };
+}
+
+/** 解绑管理员账号的 GitHub 登录 */
+export async function unbindAdminGithub() {
+  if (!current) return { success: false, error: '管理后台未启用' };
+  const record = { ...current, github: null };
+  const { source: _s, ...payload } = record;
+  const persisted = await writeToRedis(payload);
+  if (!persisted) return { success: false, error: '解绑写入 Redis 失败' };
+
+  current = { ...record, source: 'redis' };
+  return { success: true };
 }
