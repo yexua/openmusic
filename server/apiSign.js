@@ -49,10 +49,22 @@ export function isApiSignRequired() {
   return API_SIGN_REQUIRED;
 }
 
+const OAUTH_PUBLIC_GET_PATHS = new Set([
+  '/api/auth/linuxdo/status',
+  '/api/auth/linuxdo/start',
+  '/api/auth/linuxdo/callback',
+  '/api/auth/github/status',
+  '/api/auth/github/start',
+  '/api/auth/github/callback',
+]);
+
 export function isPublicApiPath(req) {
   const path = req.path || '';
   if (path === '/api/health' || path === '/api/app-version' || path === '/api/site-announcement') return true;
   if (path === '/api/session/bootstrap' && req.method === 'POST') return true;
+  // OAuth 找回/后台登录场景下浏览器可能压根没有房主身份 Cookie（这正是找回要解决的问题），
+  // 这几条路由自己会按 purpose 做对应的身份/会话校验，不能被这里的通用身份门槛提前拦掉。
+  if (req.method === 'GET' && OAUTH_PUBLIC_GET_PATHS.has(path)) return true;
   return false;
 }
 
