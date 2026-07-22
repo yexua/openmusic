@@ -241,26 +241,26 @@ const RoomCard = memo(function RoomCard({
             )}
 
             {/* 底部状态栏：分隔线做成刻痕（上暗下亮） */}
-            <div className="flex items-center gap-5 mt-4 pt-3.5 border-t border-black/40 [box-shadow:inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors">
-              <div className="flex items-center gap-2.5">
-                <span className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-white/55 group-hover:text-white/85 transition-colors bg-gradient-to-b from-white/[0.09] to-white/[0.02] border border-white/10 shadow-[0_2px_4px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]">
-                  <Users className="w-3.5 h-3.5 text-white/40 group-hover:text-emerald-400 group-hover:scale-110 transition-all duration-300" />
-                  {room.userCount} 人
+            <div className="flex items-center gap-2 sm:gap-5 mt-4 pt-3.5 border-t border-black/40 [box-shadow:inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors">
+              <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
+                <span className="inline-flex flex-shrink-0 items-center gap-1 sm:gap-1.5 whitespace-nowrap rounded-lg px-1.5 sm:px-2 py-1 text-xs font-semibold text-white/55 group-hover:text-white/85 transition-colors bg-gradient-to-b from-white/[0.09] to-white/[0.02] border border-white/10 shadow-[0_2px_4px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]">
+                  <Users className="w-3.5 h-3.5 flex-shrink-0 text-white/40 group-hover:text-emerald-400 group-hover:scale-110 transition-all duration-300" />
+                  {room.userCount}人
                 </span>
-                <span className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-white/55 group-hover:text-white/85 transition-colors bg-gradient-to-b from-white/[0.09] to-white/[0.02] border border-white/10 shadow-[0_2px_4px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]">
-                  <ListMusic className="w-3.5 h-3.5 text-white/40 group-hover:text-violet-400 group-hover:scale-110 transition-all duration-300" />
-                  {room.queueLength} 首
+                <span className="inline-flex flex-shrink-0 items-center gap-1 sm:gap-1.5 whitespace-nowrap rounded-lg px-1.5 sm:px-2 py-1 text-xs font-semibold text-white/55 group-hover:text-white/85 transition-colors bg-gradient-to-b from-white/[0.09] to-white/[0.02] border border-white/10 shadow-[0_2px_4px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]">
+                  <ListMusic className="w-3.5 h-3.5 flex-shrink-0 text-white/40 group-hover:text-violet-400 group-hover:scale-110 transition-all duration-300" />
+                  {room.queueLength}首
                 </span>
               </div>
               
-              <span className="ml-auto">
+              <span className="ml-auto flex-shrink-0">
                 {hardLocked ? (
-                  <span className="flex items-center gap-1 text-xs text-red-400/60 font-medium">
+                  <span className="flex items-center gap-1 whitespace-nowrap text-xs text-red-400/60 font-medium">
                     <Lock className="w-3.5 h-3.5" />
                     已上锁
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-[13px] text-netease-red opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 font-bold">
+                  <span className="hidden sm:flex items-center gap-1 text-[13px] text-netease-red opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 font-bold">
                     立即加入
                     <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-0.5" />
                   </span>
