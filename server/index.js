@@ -139,6 +139,38 @@ import { getSiteAnnouncement, initSiteAnnouncement } from './siteAnnouncement.js
 import { initSiteBans, isSiteBanned } from './siteBan.js';
 import { createErrorReport, listPendingSolutionsForUser, ackErrorReportSolution } from './errorReports.js';
 import { getRuntimeConfig } from './runtimeConfig.js';
+import {
+  isLinuxdoConfigured,
+  signLinuxdoState,
+  verifyLinuxdoState,
+  sanitizeReturnPath,
+  buildLinuxdoAuthorizeUrl,
+  exchangeLinuxdoCode,
+  fetchLinuxdoProfile,
+  bindLinuxdoToUser,
+  getUserIdForLinuxdo,
+  getLinuxdoProfileForUser,
+  unbindLinuxdoForUser,
+} from './linuxdoAuth.js';
+import {
+  isGithubConfigured,
+  signGithubState,
+  verifyGithubState,
+  sanitizeGithubReturnPath,
+  buildGithubAuthorizeUrl,
+  exchangeGithubCode,
+  fetchGithubProfile,
+  bindGithubToUser,
+  getUserIdForGithub,
+  getGithubProfileForUser,
+  unbindGithubForUser,
+} from './githubAuth.js';
+
+// 由 mountAdminApi() 返回赋值：房主 OAuth 回调路由与后台 OAuth 回调共用同一个
+// 已在第三方平台注册的 redirect_uri，只能在这一个路由里按 state.purpose 分发，
+// 详见下方 /api/auth/{provider}/callback 路由与 adminApi.js 内的处理函数。
+let handleLinuxdoAdminCallback = null;
+let handleGithubAdminCallback = null;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.join(__dirname, '../client/dist');
@@ -451,6 +483,8 @@ const limitSocketChat = createRateLimiter({ windowMs: 60_000, max: 30 });
 const limitErrorReport = createRateLimiter({ windowMs: 10 * 60_000, max: 5 });
 const limitSessionBootstrap = createRateLimiter({ windowMs: 60_000, max: 60 });
 const limitNewSessionBootstrap = createRateLimiter({ windowMs: 60_000, max: 12 });
+const limitLinuxdoAuth = createRateLimiter({ windowMs: 60_000, max: 10 });
+const limitGithubAuth = createRateLimiter({ windowMs: 60_000, max: 10 });
 
 function sanitizeClientSong(song) {
   if (!song || typeof song !== 'object') {
@@ -1268,6 +1302,199 @@ app.post('/api/session/bootstrap', async (req, res) => {
   return sendBootstrapResponse(res, userId, signIat, signClientId(userId, signIat), deviceId);
 });
 
+// ---------- Linux.do OAuth：房主身份绑定 / 找回 ----------
+// 只影响“把当前浏览器身份绑定到一个 Linux.do 账号”这件事，不改变匿名创建/加入房间的既有流程；
+// 不登录 Linux.do 完全不受影响。持久化只写 Redis（server/linuxdoAuth.js）。
+
+app.get('/api/auth/linuxdo/status', async (req, res) => {
+  const enabled = isLinuxdoConfigured();
+  if (!enabled) return res.json({ enabled: false, bound: null });
+
+  const identity = resolveIdentityFromRequest(req);
+  const bound = identity?.userId ? await getLinuxdoProfileForUser(identity.userId) : null;
+  res.json({ enabled: true, bound });
+});
+
+app.get('/api/auth/linuxdo/start', (req, res) => {
+  if (!isLinuxdoConfigured()) return res.status(400).json({ error: 'Linux.do 登录未配置' });
+  if (!limitLinuxdoAuth(`linuxdo-start:${getRequestIp(req)}`)) {
+    return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+  }
+
+  const purpose = req.query?.purpose === 'recover' ? 'recover' : 'bind';
+  const returnPath = sanitizeReturnPath(req.query?.returnPath);
+
+  if (purpose === 'bind') {
+    const identity = requireSessionIdentity(req, res);
+    if (!identity) return;
+    const roomId = String(req.query?.roomId || '').trim().toUpperCase();
+    const room = roomId ? getRoomInternal(roomId) : null;
+    if (!room || room.creatorId !== identity.userId) {
+      return res.status(403).json({ error: '只有房主本人可以绑定 Linux.do 账号' });
+    }
+    const state = signLinuxdoState({ purpose: 'bind', userId: identity.userId, returnPath });
+    return res.redirect(buildLinuxdoAuthorizeUrl(state));
+  }
+
+  // recover：此时大概率已不是原身份，不要求当前必须有身份
+  const state = signLinuxdoState({ purpose: 'recover', returnPath });
+  res.redirect(buildLinuxdoAuthorizeUrl(state));
+});
+
+app.get('/api/auth/linuxdo/callback', async (req, res) => {
+  const fail = (returnPath, reason) => res.redirect(`${sanitizeReturnPath(returnPath)}?linuxdo=${reason}`);
+
+  if (!isLinuxdoConfigured()) return fail('/', 'error');
+  if (!limitLinuxdoAuth(`linuxdo-callback:${getRequestIp(req)}`)) {
+    return res.status(429).send('请求过于频繁，请稍后再试');
+  }
+
+  const state = verifyLinuxdoState(req.query?.state);
+  if (!state) return fail('/', 'error');
+  const returnPath = sanitizeReturnPath(state.returnPath);
+
+  let profile;
+  try {
+    const accessToken = await exchangeLinuxdoCode(req.query?.code);
+    profile = await fetchLinuxdoProfile(accessToken);
+  } catch (err) {
+    console.error('Linux.do OAuth 失败:', err?.message || err);
+    return fail(returnPath, 'error');
+  }
+
+  if (state.purpose === 'admin-bind' || state.purpose === 'admin-login') {
+    // 后台绑定 / 后台登录复用同一个已注册的 redirect_uri，只能在这里按 purpose 转发
+    return handleLinuxdoAdminCallback(req, res, state, profile);
+  }
+
+  if (state.purpose === 'bind') {
+    // 二次核验：跳转期间房主可能已变化（转让 / 身份过期），不能只信 state
+    const identity = resolveIdentityFromRequest(req);
+    if (!identity?.userId || identity.userId !== state.userId) {
+      return fail(returnPath, 'expired');
+    }
+    try {
+      await bindLinuxdoToUser(profile.id, identity.userId, profile);
+    } catch (err) {
+      console.error('Linux.do 绑定写入失败:', err?.message || err);
+      return fail(returnPath, 'error');
+    }
+    return fail(returnPath, 'bound');
+  }
+
+  // recover：查已绑定的 userId，重新签发身份 Cookie（不改变房间归属逻辑本身）
+  const boundUserId = await getUserIdForLinuxdo(profile.id);
+  if (!boundUserId) return fail(returnPath, 'notfound');
+
+  const now = Math.floor(Date.now() / 1000);
+  const cookieDeviceId = resolveDeviceIdFromCookieHeader(req.headers?.cookie || '');
+  const deviceId = cookieDeviceId || createServerClientId();
+  await linkDeviceToUser(deviceId, boundUserId);
+  setIdentityCookieHeaders(res, boundUserId, signClientId(boundUserId, now), deviceId);
+  return fail(returnPath, 'recovered');
+});
+
+app.post('/api/auth/linuxdo/unbind', async (req, res) => {
+  const identity = requireSessionIdentity(req, res);
+  if (!identity) return;
+  await unbindLinuxdoForUser(identity.userId);
+  res.json({ success: true });
+});
+
+// ---------- GitHub OAuth：房主身份绑定 / 找回（与 Linux.do 完全对称的一套流程） ----------
+
+app.get('/api/auth/github/status', async (req, res) => {
+  const enabled = isGithubConfigured();
+  if (!enabled) return res.json({ enabled: false, bound: null });
+
+  const identity = resolveIdentityFromRequest(req);
+  const bound = identity?.userId ? await getGithubProfileForUser(identity.userId) : null;
+  res.json({ enabled: true, bound });
+});
+
+app.get('/api/auth/github/start', (req, res) => {
+  if (!isGithubConfigured()) return res.status(400).json({ error: 'GitHub 登录未配置' });
+  if (!limitGithubAuth(`github-start:${getRequestIp(req)}`)) {
+    return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+  }
+
+  const purpose = req.query?.purpose === 'recover' ? 'recover' : 'bind';
+  const returnPath = sanitizeGithubReturnPath(req.query?.returnPath);
+
+  if (purpose === 'bind') {
+    const identity = requireSessionIdentity(req, res);
+    if (!identity) return;
+    const roomId = String(req.query?.roomId || '').trim().toUpperCase();
+    const room = roomId ? getRoomInternal(roomId) : null;
+    if (!room || room.creatorId !== identity.userId) {
+      return res.status(403).json({ error: '只有房主本人可以绑定 GitHub 账号' });
+    }
+    const state = signGithubState({ purpose: 'bind', userId: identity.userId, returnPath });
+    return res.redirect(buildGithubAuthorizeUrl(state));
+  }
+
+  const state = signGithubState({ purpose: 'recover', returnPath });
+  res.redirect(buildGithubAuthorizeUrl(state));
+});
+
+app.get('/api/auth/github/callback', async (req, res) => {
+  const fail = (returnPath, reason) => res.redirect(`${sanitizeGithubReturnPath(returnPath)}?github=${reason}`);
+
+  if (!isGithubConfigured()) return fail('/', 'error');
+  if (!limitGithubAuth(`github-callback:${getRequestIp(req)}`)) {
+    return res.status(429).send('请求过于频繁，请稍后再试');
+  }
+
+  const state = verifyGithubState(req.query?.state);
+  if (!state) return fail('/', 'error');
+  const returnPath = sanitizeGithubReturnPath(state.returnPath);
+
+  let profile;
+  try {
+    const accessToken = await exchangeGithubCode(req.query?.code);
+    profile = await fetchGithubProfile(accessToken);
+  } catch (err) {
+    console.error('GitHub OAuth 失败:', err?.message || err);
+    return fail(returnPath, 'error');
+  }
+
+  if (state.purpose === 'admin-bind' || state.purpose === 'admin-login') {
+    // 后台绑定 / 后台登录复用同一个已注册的 redirect_uri，只能在这里按 purpose 转发
+    return handleGithubAdminCallback(req, res, state, profile);
+  }
+
+  if (state.purpose === 'bind') {
+    const identity = resolveIdentityFromRequest(req);
+    if (!identity?.userId || identity.userId !== state.userId) {
+      return fail(returnPath, 'expired');
+    }
+    try {
+      await bindGithubToUser(profile.id, identity.userId, profile);
+    } catch (err) {
+      console.error('GitHub 绑定写入失败:', err?.message || err);
+      return fail(returnPath, 'error');
+    }
+    return fail(returnPath, 'bound');
+  }
+
+  const boundUserId = await getUserIdForGithub(profile.id);
+  if (!boundUserId) return fail(returnPath, 'notfound');
+
+  const now = Math.floor(Date.now() / 1000);
+  const cookieDeviceId = resolveDeviceIdFromCookieHeader(req.headers?.cookie || '');
+  const deviceId = cookieDeviceId || createServerClientId();
+  await linkDeviceToUser(deviceId, boundUserId);
+  setIdentityCookieHeaders(res, boundUserId, signClientId(boundUserId, now), deviceId);
+  return fail(returnPath, 'recovered');
+});
+
+app.post('/api/auth/github/unbind', async (req, res) => {
+  const identity = requireSessionIdentity(req, res);
+  if (!identity) return;
+  await unbindGithubForUser(identity.userId);
+  res.json({ success: true });
+});
+
 app.post('/api/error-reports', async (req, res) => {
   const identity = resolveIdentityFromRequest(req);
   if (!identity?.userId) {
@@ -1525,13 +1752,13 @@ app.get('*', (req, res, next) => {
 const socketToRoom = new Map();
 const socketToUserId = new Map();
 
-mountAdminApi(app, {
+({ handleLinuxdoAdminCallback, handleGithubAdminCallback } = mountAdminApi(app, {
   io,
   socketToRoom,
   socketToUserId,
   getClientIp: (req) => getClientIpFromHeaders(req.headers, req.socket?.remoteAddress || ''),
   allowedOrigins: ALLOWED_ORIGINS,
-});
+}));
 
 function isPrivateHostname(hostname) {
   return isBlockedMediaHostname(hostname);

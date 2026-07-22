@@ -1,11 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SafetyCertificateOutlined, UserOutlined, LockOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Form, Input, Layout, Space, Typography } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, Layout, Space, Typography } from 'antd';
 import { adminFetch } from './utils';
+
+const LINUXDO_LOGIN_ERRORS: Record<string, string> = {
+  denied: '这个 Linux.do 账号还没有绑定管理员，请先用账号密码登录后在后台绑定',
+  locked: '登录尝试过于频繁，请稍后再试',
+  error: 'Linux.do 登录失败，请稍后再试',
+  expired: '登录已过期，请重试',
+};
+
+const GITHUB_LOGIN_ERRORS: Record<string, string> = {
+  denied: '这个 GitHub 账号还没有绑定管理员，请先用账号密码登录后在后台绑定',
+  locked: '登录尝试过于频繁，请稍后再试',
+  error: 'GitHub 登录失败，请稍后再试',
+  expired: '登录已过期，请重试',
+};
 
 export default function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [linuxdoEnabled, setLinuxdoEnabled] = useState(false);
+  const [githubEnabled, setGithubEnabled] = useState(false);
+
+  useEffect(() => {
+    void adminFetch<{ enabled: boolean }>('/api/admin/linuxdo/status')
+      .then((status) => setLinuxdoEnabled(Boolean(status.enabled)))
+      .catch(() => setLinuxdoEnabled(false));
+    void adminFetch<{ enabled: boolean }>('/api/admin/github/status')
+      .then((status) => setGithubEnabled(Boolean(status.enabled)))
+      .catch(() => setGithubEnabled(false));
+
+    const url = new URL(window.location.href);
+    const linuxdoResult = url.searchParams.get('linuxdo');
+    const githubResult = url.searchParams.get('github');
+    if (linuxdoResult && linuxdoResult !== 'login_ok') {
+      setError(LINUXDO_LOGIN_ERRORS[linuxdoResult] || 'Linux.do 登录失败');
+    } else if (githubResult && githubResult !== 'login_ok') {
+      setError(GITHUB_LOGIN_ERRORS[githubResult] || 'GitHub 登录失败');
+    }
+    if (linuxdoResult || githubResult) {
+      url.searchParams.delete('linuxdo');
+      url.searchParams.delete('github');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
 
   const submit = async (values: { username: string; password: string }) => {
     if (busy) return;
@@ -67,12 +106,29 @@ export default function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
                   autoComplete="current-password"
                 />
               </Form.Item>
-              <Form.Item style={{ marginBottom: 0 }}>
+              <Form.Item style={{ marginBottom: (linuxdoEnabled || githubEnabled) ? 0 : undefined }}>
                 <Button type="primary" htmlType="submit" block loading={busy}>
                   登录
                 </Button>
               </Form.Item>
             </Form>
+            {(linuxdoEnabled || githubEnabled) && <Divider style={{ margin: 0 }}>或</Divider>}
+            {linuxdoEnabled && (
+              <Button
+                block
+                onClick={() => { window.location.href = '/api/admin/linuxdo/login/start'; }}
+              >
+                使用 Linux.do 登录
+              </Button>
+            )}
+            {githubEnabled && (
+              <Button
+                block
+                onClick={() => { window.location.href = '/api/admin/github/login/start'; }}
+              >
+                使用 GitHub 登录
+              </Button>
+            )}
           </Space>
         </Card>
       </Layout.Content>
