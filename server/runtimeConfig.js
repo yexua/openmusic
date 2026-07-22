@@ -270,15 +270,16 @@ export function isLinuxdoConfigured(config = getRuntimeConfig()) {
   return Boolean(
     config.linuxdoClientId
     && config.linuxdoClientSecret
+    && config.linuxdoRedirectUri
     && config.linuxdoAuthorizeUrl
     && config.linuxdoTokenUrl
     && config.linuxdoUserInfoUrl,
   );
 }
 
-/** GitHub OAuth 是否已具备可用配置（只需要客户端凭据，接口地址是固定的） */
+/** GitHub OAuth 是否已具备可用配置（只需要客户端凭据 + 回调地址，接口地址是固定的） */
 export function isGithubConfigured(config = getRuntimeConfig()) {
-  return Boolean(config.githubClientId && config.githubClientSecret);
+  return Boolean(config.githubClientId && config.githubClientSecret && config.githubRedirectUri);
 }
 
 function validateHttpUrl(value, label, { allowEmpty = false, allowList = false, allowPrivate = false } = {}) {

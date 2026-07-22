@@ -13,10 +13,14 @@ export function lazyWithRetry<T extends ComponentType<any>>(
   key: string,
 ): ReturnType<typeof lazy<T>> {
   return lazy(async () => {
+    const flagKey = `${RELOAD_FLAG_PREFIX}${key}`;
     try {
-      return await factory();
+      const mod = await factory();
+      // 加载成功后清掉标记：不然同一个 tab 里这个 chunk 之后再出现一次
+      // 真正的临时性加载失败（网络抖动、下一次发版），就不会再自动刷新了。
+      sessionStorage.removeItem(flagKey);
+      return mod;
     } catch (err) {
-      const flagKey = `${RELOAD_FLAG_PREFIX}${key}`;
       if (!sessionStorage.getItem(flagKey)) {
         sessionStorage.setItem(flagKey, '1');
         window.location.reload();

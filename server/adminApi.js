@@ -495,7 +495,10 @@ export function mountAdminApi(app, { io, socketToRoom, socketToUserId, getClient
 
   app.get('/api/admin/linuxdo/status', (req, res) => {
     if (!isLinuxdoConfigured()) return res.json({ enabled: false, bound: null });
-    res.json({ enabled: true, bound: getAdminLinuxdoBinding() });
+    // 登录页只需要知道功能是否开启；绑定详情（第三方用户名/头像/绑定时间）只有已登录管理员能看，
+    // 否则随机管理入口路径就形同虚设——匿名访问者不该能探测出后台绑定了哪个账号。
+    const isAdmin = isAdminEnabled() && Boolean(verifySession(req));
+    res.json({ enabled: true, bound: isAdmin ? getAdminLinuxdoBinding() : null });
   });
 
   app.get('/api/admin/linuxdo/bind/start', requireAdmin, (req, res) => {
@@ -563,7 +566,8 @@ export function mountAdminApi(app, { io, socketToRoom, socketToUserId, getClient
 
   app.get('/api/admin/github/status', (req, res) => {
     if (!isGithubConfigured()) return res.json({ enabled: false, bound: null });
-    res.json({ enabled: true, bound: getAdminGithubBinding() });
+    const isAdmin = isAdminEnabled() && Boolean(verifySession(req));
+    res.json({ enabled: true, bound: isAdmin ? getAdminGithubBinding() : null });
   });
 
   app.get('/api/admin/github/bind/start', requireAdmin, (req, res) => {
