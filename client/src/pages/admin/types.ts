@@ -1,3 +1,15 @@
+export interface MetingUpstreamRecentError {
+  at: number;
+  message: string;
+  type?: string;
+  id?: string;
+  server?: string;
+  userId?: string;
+  userNickname?: string;
+  roomId?: string;
+  roomName?: string;
+}
+
 export interface MetingUpstreamStatus {
   url: string;
   style?: string;
@@ -6,7 +18,12 @@ export interface MetingUpstreamStatus {
   cooldownRemainingSec: number;
   okCount: number;
   failCount: number;
+  softFailCount?: number;
+  /** 0–100，按硬失败口径：ok / (ok + fail) */
+  successRate?: number;
   lastError: string;
+  lastErrorAt?: number;
+  recentErrors?: MetingUpstreamRecentError[];
 }
 
 export interface AdminAuditEntry {

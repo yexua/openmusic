@@ -18,6 +18,8 @@ import { collectDeviceIdsForUser, isAccessBanned } from "./deviceIdentity.js";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import { resizeCoverForThumb } from "./coverUrl.js";
 import { isDirectCoverUrl, resolveSongCoverUrl } from "./resolveSongCover.js";
+import { isSongPlayableOnServer } from "./songPlayableProbe.js";
+import { runWithMetingRequestContext } from "./metingUpstream.js";
 
 const generateRoomId = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const generateId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -1547,6 +1549,23 @@ export function getRoomPublic(roomId) {
 export function getRoom(roomId) {
   const room = rooms.get(roomId?.toUpperCase());
   return room ? serializeRoom(room) : null;
+}
+
+/** 查找用户当前所在房间（用于音源失败日志归因） */
+export function findUserRoomPresence(userId) {
+  const id = String(userId || '').trim();
+  if (!id) return null;
+  for (const room of rooms.values()) {
+    const user = room.users.get(id);
+    if (!user) continue;
+    return {
+      userId: id,
+      userNickname: String(user.nickname || '').slice(0, 40),
+      roomId: room.id,
+      roomName: String(room.name || room.id).slice(0, 60),
+    };
+  }
+  return null;
 }
 
 export function roomExists(roomId) {
@@ -3137,8 +3156,27 @@ export async function skipSong(roomId, socketId, connectionId = null, options = 
   if (!isControllerConnection(room, socketId, connectionId)) return { error: "仅房主或管理员可切歌" };
 
   const user = room.users.get(socketId);
-  const songTitle = room.current ? formatSongTitle(room.current) : "";
+  const currentSong = room.current;
+  const songTitle = currentSong ? formatSongTitle(currentSong) : "";
   const reason = String(options.reason || "manual");
+
+  // 音源异常必须由服务端探测确认，不能凭主控本机取链失败全屋切歌
+  if (reason === "source_error") {
+    if (!currentSong) return { error: "当前没有正在播放的歌曲" };
+    const playable = await runWithMetingRequestContext(
+      {
+        userId: socketId,
+        userNickname: String(user?.nickname || "").slice(0, 40),
+        roomId: room.id,
+        roomName: String(room.name || room.id).slice(0, 60),
+      },
+      () => isSongPlayableOnServer(currentSong),
+    );
+    if (playable) {
+      return { error: "服务端检测音源正常，未切歌（可能是本机网络问题）" };
+    }
+  }
+
   await playNext(room, { allowFetchRandom: false, forceAdvance: true });
 
   let systemMessage = null;

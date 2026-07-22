@@ -11,6 +11,7 @@ import {
   getMetingUpstreamBases,
   getMetingUpstreamStatus,
   startMetingHealthProbe,
+  runWithMetingRequestContext,
 } from './metingUpstream.js';
 import { fetchCustomMusicApi, hasCustomMusicApi } from './customMusicApi.js';
 import { fetchLrcapiLyrics, getLrcapiUpstreamStatus } from './lrcapiUpstream.js';
@@ -115,6 +116,7 @@ import {
   roomUpdateForViewer,
   prepareRoomPresence,
   roomPresenceForViewer,
+  findUserRoomPresence,
 } from './roomManager.js';
 import {
   isCyapiConfigured,
@@ -746,7 +748,8 @@ app.get('/api/music/netease/playlists/meta', async (req, res) => {
 });
 
 app.get('/api/music/netease/playlists/search', async (req, res) => {
-  if (!requireSessionIdentity(req, res)) return;
+  const identity = requireSessionIdentity(req, res);
+  if (!identity) return;
   if (!limitProxyRequest(proxyLimitKey('playlist-search', req))) {
     return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
   }
@@ -757,7 +760,16 @@ app.get('/api/music/netease/playlists/search', async (req, res) => {
   if (!keyword) return res.json({ playlists: [], total: 0, page, limit });
 
   try {
-    const response = await fetchMetingApi({ server: 'netease', type: 'search_playlist', id: keyword }, {}, 10000);
+    const presence = findUserRoomPresence(identity.userId);
+    const response = await runWithMetingRequestContext(
+      {
+        userId: identity.userId,
+        userNickname: presence?.userNickname || '',
+        roomId: presence?.roomId || '',
+        roomName: presence?.roomName || '',
+      },
+      () => fetchMetingApi({ server: 'netease', type: 'search_playlist', id: keyword }, {}, 10000),
+    );
     if (!response.ok) return res.status(response.status).json({ error: '红点歌单搜索失败' });
     const data = await response.json();
     const playlists = Array.isArray(data) ? data : [];
@@ -823,13 +835,23 @@ app.get('/api/music/quality-capabilities', (req, res) => {
 });
 
 app.get('/api/meting', async (req, res) => {
-  if (!requireSessionIdentity(req, res)) return;
+  const identity = requireSessionIdentity(req, res);
+  if (!identity) return;
 
   try {
     const thumbPx = parseInt(String(req.query.size || ''), 10) || 0;
     const query = { ...req.query };
     delete query.size;
-    await proxyMetingResponse(query, res, thumbPx, String(query.type || ''));
+    const presence = findUserRoomPresence(identity.userId);
+    await runWithMetingRequestContext(
+      {
+        userId: identity.userId,
+        userNickname: presence?.userNickname || '',
+        roomId: presence?.roomId || '',
+        roomName: presence?.roomName || '',
+      },
+      () => proxyMetingResponse(query, res, thumbPx, String(query.type || '')),
+    );
   } catch (err) {
     console.error('Meting proxy error:', formatMetingFetchError(err));
     res.status(502).json({ error: '无法连接 Meting API，请检查 METING_API_URL 配置' });
@@ -838,7 +860,8 @@ app.get('/api/meting', async (req, res) => {
 
 /** HTTPS 站点下代理 http 音频/封面，避免浏览器混合内容警告 */
 app.get('/api/media-proxy', async (req, res) => {
-  if (!requireSessionIdentity(req, res)) return;
+  const identity = requireSessionIdentity(req, res);
+  if (!identity) return;
   if (!limitProxyRequest(proxyLimitKey('media', req))) {
     return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
   }
@@ -862,9 +885,20 @@ app.get('/api/media-proxy', async (req, res) => {
   }
   // 不再限制媒体域名白名单，仅拦截内网地址
 
+  const presence = findUserRoomPresence(identity.userId);
+  const metingCtx = {
+    userId: identity.userId,
+    userNickname: presence?.userNickname || '',
+    roomId: presence?.roomId || '',
+    roomName: presence?.roomName || '',
+  };
+
   try {
     if (parseMetingMediaQuery(raw)) {
-      fetchUrl = await resolveMediaProxyFetchUrl(raw, thumbPx);
+      fetchUrl = await runWithMetingRequestContext(
+        metingCtx,
+        () => resolveMediaProxyFetchUrl(raw, thumbPx),
+      );
     } else if (thumbPx > 0) {
       fetchUrl = resizeCoverForThumb(raw, thumbPx);
     } else {
