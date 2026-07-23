@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
+import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
@@ -12,6 +13,8 @@ import { normalizeFmMode } from '../api/music/fmMode';
 import { addSongsToQueue, formatBulkAddToast } from '../lib/addSongsToQueue';
 import { rememberPlaylistImportHistory } from '../lib/playlistImportHistory';
 import { detectPlaylistLink } from '../lib/playlistLink';
+import { consumeLinuxdoReturnParam, fetchLinuxdoStatus } from '../lib/linuxdoAuth';
+import { consumeGithubReturnParam, fetchGithubStatus } from '../lib/githubAuth';
 
 import type { FavoriteSong, MusicSource, RoomAudioQuality, RoomMemberSettings, RoomMemberTier, SearchResult, Song, SongHistoryItem } from '../types';
 
@@ -33,7 +36,6 @@ import { normalizeDislikeSkipMode } from '../lib/dislikeSkip';
 
 import { songKey, getCoverUrl, getTrackKey } from '../api/music';
 import SongCover from '../components/SongCover';
-import HotSongPanel from '../components/HotSongPanel';
 import { fileToRoomCoverDataUrl, isSupportedRoomCoverFile } from '../lib/roomCoverImage';
 
 import AudioEngine from '../components/AudioEngine';
@@ -104,26 +106,27 @@ import {
   immersiveGlassListFooter,
 } from '../lib/immersiveGlass';
 
-const PlayerPage = lazy(() => import('../components/PlayerPage'));
-const PlaylistImportModal = lazy(() => import('../components/PlaylistImportModal'));
-const RecommendedPlaylistsDrawer = lazy(() => import('../components/RecommendedPlaylistsDrawer'));
-const DjRadioDrawer = lazy(() => import('../components/DjRadioDrawer'));
-const ClientDownloadModal = lazy(() => import('../components/ClientDownloadModal'));
-const RoomMemberModal = lazy(() => import('../components/RoomMemberModal'));
-const RoomSettingsModal = lazy(() => import('../components/RoomSettingsModal'));
-const RoomVisualFxPanel = lazy(() => import('../components/RoomVisualFxPanel'));
-const RoomImmersiveShell = lazy(() => import('../components/immersive/RoomImmersiveShell'));
-const ImmersiveFxSettingsPanel = lazy(() => import('../components/immersive/ImmersiveFxSettingsPanel'));
-const ImmersiveExitModal = lazy(() => import('../components/immersive/ImmersiveExitModal'));
-const ImmersiveTransitionOverlay = lazy(() => import('../components/immersive/ImmersiveTransitionOverlay'));
-const ChatPanel = lazy(() => import('../components/ChatPanel'));
-const PureModeChatDock = lazy(() => import('../components/PureModeChatDock'));
-const QueuePanel = lazy(() => import('../components/QueuePanel'));
-const OnlineUsers = lazy(() => import('../components/OnlineUsers'));
-const RoomAmbientBackground = lazy(() => import('../components/RoomAmbientBackground'));
-const MiniPlayer = lazy(() => import('../components/MiniPlayer'));
-const RoomQualityModal = lazy(() => import('../components/RoomQualityModal'));
-const RoomAnnouncementPopup = lazy(() => import('../components/RoomAnnouncementPopup'));
+const PlayerPage = lazyWithRetry(() => import('../components/PlayerPage'), 'PlayerPage');
+const PlaylistImportModal = lazyWithRetry(() => import('../components/PlaylistImportModal'), 'PlaylistImportModal');
+const RecommendedPlaylistsDrawer = lazyWithRetry(() => import('../components/RecommendedPlaylistsDrawer'), 'RecommendedPlaylistsDrawer');
+const DjRadioDrawer = lazyWithRetry(() => import('../components/DjRadioDrawer'), 'DjRadioDrawer');
+const ClientDownloadModal = lazyWithRetry(() => import('../components/ClientDownloadModal'), 'ClientDownloadModal');
+const RoomMemberModal = lazyWithRetry(() => import('../components/RoomMemberModal'), 'RoomMemberModal');
+const RoomSettingsModal = lazyWithRetry(() => import('../components/RoomSettingsModal'), 'RoomSettingsModal');
+const RoomVisualFxPanel = lazyWithRetry(() => import('../components/RoomVisualFxPanel'), 'RoomVisualFxPanel');
+const RoomImmersiveShell = lazyWithRetry(() => import('../components/immersive/RoomImmersiveShell'), 'RoomImmersiveShell');
+const ImmersiveFxSettingsPanel = lazyWithRetry(() => import('../components/immersive/ImmersiveFxSettingsPanel'), 'ImmersiveFxSettingsPanel');
+const ImmersiveExitModal = lazyWithRetry(() => import('../components/immersive/ImmersiveExitModal'), 'ImmersiveExitModal');
+const ImmersiveTransitionOverlay = lazyWithRetry(() => import('../components/immersive/ImmersiveTransitionOverlay'), 'ImmersiveTransitionOverlay');
+const ChatPanel = lazyWithRetry(() => import('../components/ChatPanel'), 'ChatPanel');
+const PureModeChatDock = lazyWithRetry(() => import('../components/PureModeChatDock'), 'PureModeChatDock');
+const QueuePanel = lazyWithRetry(() => import('../components/QueuePanel'), 'QueuePanel');
+const HotSongPanel = lazyWithRetry(() => import('../components/HotSongPanel'), 'HotSongPanel');
+const OnlineUsers = lazyWithRetry(() => import('../components/OnlineUsers'), 'OnlineUsers');
+const RoomAmbientBackground = lazyWithRetry(() => import('../components/RoomAmbientBackground'), 'RoomAmbientBackground');
+const MiniPlayer = lazyWithRetry(() => import('../components/MiniPlayer'), 'MiniPlayer');
+const RoomQualityModal = lazyWithRetry(() => import('../components/RoomQualityModal'), 'RoomQualityModal');
+const RoomAnnouncementPopup = lazyWithRetry(() => import('../components/RoomAnnouncementPopup'), 'RoomAnnouncementPopup');
 
 function ensureGalaxyAudioOutputLazy() {
   void import('../components/galaxy/lib/galaxyAudio').then((m) => m.ensureGalaxyAudioOutput());
@@ -417,6 +420,24 @@ export default function Room() {
       showToast(res.error || '清空失败', 'error');
     }
   }, [clearQueue, clearingQueue, showToast]);
+
+  useEffect(() => {
+    const result = consumeLinuxdoReturnParam() || consumeGithubReturnParam();
+    if (result) showToast(result.message, result.type);
+  }, [showToast]);
+
+  // 找回身份入口需要对所有人可见：换设备/清 Cookie 后正是不再被识别为房主/管理员的状态，
+  // 不能把这个入口也一起挡在 canModerate 后面，否则找回功能在它本该生效的场景里反而打不开。
+  const [identityRecoveryAvailable, setIdentityRecoveryAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([fetchLinuxdoStatus(), fetchGithubStatus()]).then(([linuxdo, github]) => {
+      if (!cancelled) setIdentityRecoveryAvailable(linuxdo.enabled || github.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isCreator = Boolean(room?.creatorId && mySocketId && room.creatorId === mySocketId);
   const songRequestBlockReason = getSongRequestBlockReason(
@@ -1852,8 +1873,6 @@ export default function Room() {
 
   }
 
-
-
   if (!room) {
 
     return (
@@ -2285,7 +2304,11 @@ export default function Room() {
 
 
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={(
+      <div className="min-h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-netease-red animate-spin" />
+      </div>
+    )}>
     <div
       className="relative isolate flex h-full flex-col overflow-hidden"
       style={immersiveTransition || immersiveShellMotion ? immersiveTimingCssVars() : undefined}
@@ -2414,6 +2437,7 @@ export default function Room() {
         users={room?.users ?? []}
         myUserId={mySocketId}
         transferSaving={transferSaving}
+        roomId={roomId}
         onClose={() => setSettingsOpen(false)}
         onSaveFmMode={handleSaveFmMode}
         onOpenMemberModal={handleOpenMemberModalFromSettings}
@@ -2574,6 +2598,19 @@ export default function Room() {
                       aria-label="房间设置"
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {!canOpenRoomSettings && identityRecoveryAvailable && (
+                  <Tooltip side="bottom" content="找回房间身份">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsOpen(true)}
+                      className="flex-shrink-0 rounded-lg p-1 text-netease-muted transition-colors hover:bg-white/10 hover:text-white"
+                      aria-label="找回房间身份"
+                    >
+                      <Shield className="w-3.5 h-3.5" />
                     </button>
                   </Tooltip>
                 )}

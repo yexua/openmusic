@@ -46,6 +46,9 @@ export interface AdminAuditEntry {
   reportId?: string;
   status?: string;
   username?: string;
+  via?: string;
+  linuxdoUsername?: string;
+  githubUsername?: string;
 }
 
 export interface SiteAnnouncementConfig {
@@ -57,6 +60,17 @@ export interface SiteAnnouncementConfig {
 
 export interface RuntimeConfig {
   roomEmptyTtlMs: number;
+  linuxdoClientId: string;
+  linuxdoClientSecret: string;
+  linuxdoRedirectUri: string;
+  linuxdoAuthorizeUrl: string;
+  linuxdoTokenUrl: string;
+  linuxdoUserInfoUrl: string;
+  linuxdoScope: string;
+  githubClientId: string;
+  githubClientSecret: string;
+  githubRedirectUri: string;
+  githubScope: string;
   /** 是否开放 SVIP 音质选项（需上游 Cookie 具备对应权益） */
   svipQualityEnabled: boolean;
   metingApiUrl: string;
